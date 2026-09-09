@@ -1,0 +1,49 @@
+# Unity regenerates these on import.
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Bb]in/
+**/[Ll]ogs/
+**/[Uu]ser[Ss]ettings/
+**/[Bb]uild/
+**/[Bb]uilds/
+**/[Mm]emoryCaptures/
+**/[Rr]ecordings/
+
+# Generated IDE files; keep the hand-authored simulation test project.
+.vs/
+.idea/
+*.csproj.user
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.pdb
+*.mdb
+/My project/*.csproj
+/My project/*.sln
+/My project/*.slnx
+
+# Local snapshots and test output.
+/Backups/
+/Verification/*.png
+/Verification/*.log
+/Verification/*.dll
+/Verification/compile.rsp
+
+# The isolated Unity test copy is scratch data. Preserve its unique harness.
+/Verification/Unity/*
+!/Verification/Unity/Assets/
+/Verification/Unity/Assets/*
+!/Verification/Unity/Assets/Editor/
+
+# Machine-specific credentials and OS files.
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+.DS_Store
+Thumbs.db
+Desktop.ini

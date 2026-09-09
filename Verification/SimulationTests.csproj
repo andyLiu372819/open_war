@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="SimulationTests.cs" />
+    <Compile Include="EncirclementTests.cs" />
+    <Compile Include="EconomyTests.cs" />
+    <Compile Include="../My project/Assets/Scripts/EncirclementSystem.cs" />
+    <Compile Include="../My project/Assets/Scripts/MapData.cs" />
+    <Compile Include="../My project/Assets/Scripts/MapCell.cs" />
+    <Compile Include="../My project/Assets/Scripts/ITroopSource.cs" />
+    <Compile Include="../My project/Assets/Scripts/CommittedForce.cs" />
+    <Compile Include="../My project/Assets/Scripts/TerrainType.cs" />
+    <Compile Include="../My project/Assets/Scripts/TerrainRules.cs" />
+    <Compile Include="../My project/Assets/Scripts/TerrainGenerator.cs" />
+    <Compile Include="../My project/Assets/Scripts/GridHeap.cs" />
+    <Compile Include="../My project/Assets/Scripts/PlayerData.cs" />
+    <Compile Include="../My project/Assets/Scripts/ExpansionOrder.cs" />
+    <Compile Include="../My project/Assets/Scripts/StartingTerritories.cs" />
+  </ItemGroup>
+</Project>
