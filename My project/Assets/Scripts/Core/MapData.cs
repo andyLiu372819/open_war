@@ -18,6 +18,7 @@ public class MapData
     private readonly Dictionary<int, HashSet<int>> encircled = new Dictionary<int, HashSet<int>>();
     public int EncirclementVersion { get; private set; }
     public int OwnershipVersion { get; private set; }
+    public MapTransportNetwork TransportNetwork { get; private set; }
     public static readonly int[] NeighborX = { -1, 1, 0, 0 };
     public static readonly int[] NeighborY = { 0, 0, -1, 1 };
 
@@ -28,6 +29,16 @@ public class MapData
         Width = width;
         Height = height;
         cells = TerrainGenerator.Generate(width, height, seed);
+    }
+
+    // Generated maps hand over their cells directly so elevation, and with it
+    // the relief shading, survives. Building from TerrainType alone would flatten it.
+    public MapData(MapCell[,] generated)
+    {
+        if (generated == null) throw new ArgumentNullException(nameof(generated));
+        Width = generated.GetLength(0);
+        Height = generated.GetLength(1);
+        cells = generated;
     }
 
     // Hand-authored maps are useful for scenarios and simulation tests.
@@ -74,6 +85,15 @@ public class MapData
         return true;
     }
 
+    // Returns a cell to no-man's-land, keeping every ownership index in step.
+    // Scenario fixtures and future events need a way to un-claim ground.
+    public bool Vacate(int x, int y)
+    {
+        if (!InsideBorder(x, y) || cells[x, y].OwnerId < 0) return false;
+        SetOwner(x, y, -1);
+        return true;
+    }
+
     public bool TryExpandCell(int x, int y, int ownerId)
     {
         return ownerId >= 0 && HasOwnedNeighbor(x, y, ownerId) &&
@@ -82,6 +102,15 @@ public class MapData
 
     public bool IsWalkable(int x, int y) => InsideBorder(x, y) &&
         TerrainRules.IsWalkable(cells[x, y].Terrain);
+
+    public void AttachTransportNetwork(MapTransportNetwork network) => TransportNetwork = network;
+
+    public float GetMovementCost(int x, int y) => TransportNetwork == null
+        ? TerrainRules.MovementCost(GetCell(x, y).Terrain)
+        : TransportNetwork.MovementCost(this, x, y);
+
+    public bool HasFastTransport(int x, int y) => TransportNetwork != null &&
+        InsideBorder(x, y) && TransportNetwork.HasFastTransport(x, y, Width);
 
     public bool HasOwnedNeighbor(int x, int y, int ownerId)
     {
@@ -146,16 +175,20 @@ public class MapData
             oldTerritory.Version++;
             oldTerritory.EnclosureVersion++;
         }
-        if (!territories.TryGetValue(ownerId, out Territory territory))
+        // Vacating passes -1, which owns nothing: no index entry is created.
+        if (ownerId >= 0)
         {
-            territory = new Territory();
-            territories.Add(ownerId, territory);
+            if (!territories.TryGetValue(ownerId, out Territory territory))
+            {
+                territory = new Territory();
+                territories.Add(ownerId, territory);
+            }
+            territory.Cells.Add(id);
+            territory.SumX += x;
+            territory.SumY += y;
+            territory.Version++;
+            if (!capturedInsidePocket) territory.EnclosureVersion++;
         }
-        territory.Cells.Add(id);
-        territory.SumX += x;
-        territory.SumY += y;
-        territory.Version++;
-        if (!capturedInsidePocket) territory.EnclosureVersion++;
         cells[x, y].OwnerId = ownerId;
         cells[x, y].Defense = TerrainRules.Defense(cells[x, y].Terrain);
         OwnershipVersion++;

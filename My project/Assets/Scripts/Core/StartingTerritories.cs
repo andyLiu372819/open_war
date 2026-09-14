@@ -33,7 +33,7 @@ public static class StartingTerritories
                     }
                 }
                 // Avoid placing the initial territory directly on a river or peak.
-                score -= TerrainRules.ExpansionCost(map.GetCell(x, y).Terrain) * 8;
+                score -= TerrainRules.MovementCost(map.GetCell(x, y).Terrain) * 8;
                 if (score > bestScore) { bestScore = score; best = id; }
             }
             if (best < 0) throw new InvalidOperationException("Could not place a starting territory.");

@@ -49,6 +49,8 @@ public class CameraController : MonoBehaviour
                     Mathf.Exp(-Mathf.Clamp(ticks, -6f, 6f) * scrollZoomStrength), minZoom, maxZoom);
                 transform.position += before - mapCamera.ScreenToWorldPoint(screen);
             }
+            // Left-drag draws a selection box, so panning stays on middle-drag
+            // and the keyboard.
             if (mouse.middleButton.isPressed)
             {
                 Vector2 delta = mouse.delta.ReadValue();

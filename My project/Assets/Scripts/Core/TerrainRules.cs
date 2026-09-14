@@ -6,7 +6,10 @@ public static class TerrainRules
     public static bool IsWalkable(TerrainType terrain) =>
         terrain != TerrainType.Water && terrain != TerrainType.River;
 
-    public static int ExpansionCost(TerrainType terrain) => terrain switch
+    // Route weight remains terrain-sensitive even though neutral occupation no
+    // longer consumes manpower. Keeping these concepts separate prevents a
+    // zero-cost map from making path selection arbitrary.
+    public static int MovementCost(TerrainType terrain) => terrain switch
     {
         TerrainType.Coast => 2,
         TerrainType.Forest => 2,
@@ -20,7 +23,9 @@ public static class TerrainRules
         _ => 1
     };
 
-    // Enemy occupation retains its previous price; cheap wilderness does not
+    public static int ExpansionCost(TerrainType terrain) => IsWalkable(terrain) ? 0 : int.MaxValue;
+
+    // Enemy occupation retains its previous price; free wilderness does not
     // remove the cost of fighting an established garrison.
     public static int AttackCost(TerrainType terrain) => terrain switch
     {

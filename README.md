@@ -1,12 +1,12 @@
 # open_war
 
-A Unity/C# territorial strategy learning project. The working prototype includes a 524,288-cell terrain map, directional expansion, committed attacking forces, encirclement, and land-based manpower, gold, and industry income.
+A Unity/C# territorial strategy learning project, played as WeGo turns: orders are given while everything stands still, then all units execute them simultaneously. The working prototype includes a mirrored 102,400-cell duel map and a 524,288-cell scenario engine, infantry formations with mutual casualties and destruction, terrain-following transport networks that affect routing and speed, directional expansion, encirclement reduced from every direction at once, free wilderness occupation, separate civilian and military populations with coin-priced recruitment, and land-based gold and industry production.
 
 ## Open the game
 
 1. Add the **My project** folder in Unity Hub.
 2. Open with Unity **6000.5.4f1** and allow packages/assets to import.
-3. Open `Assets/Scenes/game.unity` and press Play.
+3. Open `Assets/Scenes/game.unity` and press Play. Choose Quick Play for the original world or Map Designer for an editable scenario, four geolocated historical-operation templates with transport and logistics infrastructure, and a blank Sandbox.
 
 See [the project guide](My%20project/README.md) for controls, gameplay rules, architecture, and tuning values.
 

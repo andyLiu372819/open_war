@@ -36,9 +36,17 @@ public sealed class EncirclementSystem
     public int RemainingTroops(int ownerId) =>
         assaults.TryGetValue(ownerId, out PocketAssault assault) ? assault.RemainingTroops : 0;
 
-    public AdvanceResult Step(int ownerId, float commitment, out int x, out int y)
+    // Cells captured and defenders engaged by the most recent Step, so the
+    // caller can repaint every tile a simultaneous ring attack changed.
+    private readonly List<int> stepCaptured = new List<int>();
+    private readonly List<int> stepDefenders = new List<int>();
+    public IReadOnlyList<int> LastCaptured => stepCaptured;
+    public IReadOnlyList<int> LastDefenders => stepDefenders;
+
+    public AdvanceResult Step(int ownerId, float commitment, List<int> captured, List<int> defenders)
     {
-        x = y = -1;
+        captured.Clear();
+        defenders.Clear();
         LastDefenderId = -1;
         LastRefund = 0;
         if (!players.TryGetValue(ownerId, out PlayerData reserve)) return AdvanceResult.Complete;
@@ -47,7 +55,7 @@ public sealed class EncirclementSystem
             if (!PocketAssault.TryCreate(map, reserve, commitment, out assault)) return AdvanceResult.Complete;
             assaults.Add(ownerId, assault);
         }
-        AdvanceResult result = assault.Step(out x, out y);
+        AdvanceResult result = assault.Step(captured, defenders);
         LastDefenderId = assault.LastDefenderId;
         if (assault.IsComplete)
         {
@@ -55,6 +63,17 @@ public sealed class EncirclementSystem
             reserve.AddManpower(LastRefund);
             assaults.Remove(ownerId);
         }
+        return result;
+    }
+
+    // Convenience for callers that only need to know something happened; x and y
+    // report the last cell taken this tick, not the only one.
+    public AdvanceResult Step(int ownerId, float commitment, out int x, out int y)
+    {
+        AdvanceResult result = Step(ownerId, commitment, stepCaptured, stepDefenders);
+        int last = stepCaptured.Count > 0 ? stepCaptured[stepCaptured.Count - 1] : -1;
+        x = last >= 0 ? last % map.Width : -1;
+        y = last >= 0 ? last / map.Width : -1;
         return result;
     }
 
@@ -108,6 +127,7 @@ internal sealed class PocketAssault
     private readonly MapData map;
     private readonly CommittedForce force;
     private readonly HashSet<int> frontier = new HashSet<int>();
+    private readonly List<int> ring = new List<int>();
     public bool IsComplete { get; private set; }
     public int LastDefenderId { get; private set; } = -1;
     public int RemainingTroops => force.Manpower;
@@ -152,48 +172,64 @@ internal sealed class PocketAssault
         }
     }
 
-    public AdvanceResult Step(out int x, out int y)
+    // A pocket is surrounded, so every tile of its perimeter is attacked in the
+    // same tick rather than the cheapest one alone. The pocket collapses inward
+    // from all sides instead of being eaten from whichever corner is softest.
+    public AdvanceResult Step(List<int> captured, List<int> defenders)
     {
-        x = y = -1;
+        captured.Clear();
+        defenders.Clear();
         LastDefenderId = -1;
         if (IsComplete) return AdvanceResult.Complete;
-        int best = FindNextCell(out int cheapest);
-        if (best < 0)
+        if (!HasTarget())
         {
             // A simultaneous manual order can take our entire current front.
             // Re-seed from the remaining pocket so it cannot strand this wave.
             frontier.Clear();
             SyncTargets();
-            best = FindNextCell(out cheapest);
         }
-        if (best < 0) { IsComplete = true; return AdvanceResult.Complete; }
-        if (force.Manpower < cheapest) { IsComplete = true; return AdvanceResult.OutOfTroops; }
-        x = best % map.Width; y = best / map.Width;
-        LastDefenderId = map.GetCell(x, y).OwnerId;
-        if (!map.TryAdvanceCell(x, y, force, out bool captured))
-        { IsComplete = true; return AdvanceResult.Complete; }
-        if (!captured) return AdvanceResult.Fighting;
-        frontier.Remove(best);
-        for (int i = 0; i < 4; i++)
+        // Iterate a snapshot: capturing a tile adds its neighbours to the
+        // frontier, and those belong to the next ring, not this one.
+        ring.Clear();
+        ring.AddRange(frontier);
+        bool fought = false, starved = false;
+        foreach (int id in ring)
         {
-            int nx = x + MapData.NeighborX[i], ny = y + MapData.NeighborY[i];
-            if (map.IsEncircledBy(nx, ny, force.Id)) frontier.Add(ny * map.Width + nx);
+            int cx = id % map.Width, cy = id / map.Width;
+            if (!map.IsEncircledBy(cx, cy, force.Id) || !map.HasOwnedNeighbor(cx, cy, force.Id))
+            {
+                frontier.Remove(id);
+                continue;
+            }
+            int cost = map.GetAdvanceCost(cx, cy, force.Id);
+            if (force.Manpower < cost) { starved = true; continue; }
+            int defender = map.GetCell(cx, cy).OwnerId;
+            if (!map.TryAdvanceCell(cx, cy, force, out bool took)) continue;
+            LastDefenderId = defender;
+            if (defender >= 0) defenders.Add(defender);
+            if (!took) { fought = true; continue; }
+            captured.Add(id);
+            frontier.Remove(id);
+            for (int i = 0; i < 4; i++)
+            {
+                int nx = cx + MapData.NeighborX[i], ny = cy + MapData.NeighborY[i];
+                if (map.IsEncircledBy(nx, ny, force.Id)) frontier.Add(ny * map.Width + nx);
+            }
         }
-        return AdvanceResult.Captured;
+        if (captured.Count > 0) return AdvanceResult.Captured;
+        if (fought) return AdvanceResult.Fighting;
+        IsComplete = true;
+        return starved ? AdvanceResult.OutOfTroops : AdvanceResult.Complete;
     }
 
-    private int FindNextCell(out int cheapest)
+    private bool HasTarget()
     {
-        int best = -1;
-        cheapest = int.MaxValue;
         foreach (int id in frontier)
         {
             int cx = id % map.Width, cy = id / map.Width;
-            if (!map.IsEncircledBy(cx, cy, force.Id) || !map.HasOwnedNeighbor(cx, cy, force.Id)) continue;
-            int cost = map.GetAdvanceCost(cx, cy, force.Id);
-            if (cost < cheapest || (cost == cheapest && id < best)) { best = id; cheapest = cost; }
+            if (map.IsEncircledBy(cx, cy, force.Id) && map.HasOwnedNeighbor(cx, cy, force.Id)) return true;
         }
-        return best;
+        return false;
     }
 
     public int Recall()

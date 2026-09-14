@@ -111,11 +111,14 @@ public sealed class ExpansionOrder
         float frontSpread = 1.5f, int maxFronts = 6)
     {
         order = null;
-        if (ownerId < 0 || commitment <= 0 || !map.IsWalkable(tx, ty) ||
+        if (ownerId < 0 || commitment < 0 || !map.IsWalkable(tx, ty) ||
             map.IsOwnedBy(tx, ty, ownerId)) return false;
         radius = Math.Max(1, radius);
         maxFronts = Math.Max(1, maxFronts);
         int enemy = map.GetCell(tx, ty).OwnerId;
+        // A zero-manpower formation may claim a neutral corridor, but it cannot
+        // be used to open combat against an owned destination.
+        if (commitment == 0 && enemy >= 0) return false;
         int length = map.Width * map.Height;
         var distance = new float[length];
         var next = new int[length];
@@ -142,7 +145,7 @@ public sealed class ExpansionOrder
                 // least as wide as the corridor it advances through.
                 if (origins.Count == 0)
                     limit = cost * Math.Max(1f, frontSpread) +
-                        TerrainRules.ExpansionCost(TerrainType.Land) * radius;
+                        TerrainRules.MovementCost(TerrainType.Land) * radius;
                 // Neighbouring border tiles would only produce the same prong.
                 if (Separated(map, origins, x, y, radius * 2)) origins.Add(id);
                 if (origins.Count >= maxFronts) break;
@@ -155,7 +158,10 @@ public sealed class ExpansionOrder
                 int occupant = map.GetCell(nx, ny).OwnerId;
                 if (occupant >= 0 && occupant != ownerId && occupant != enemy) continue;
                 int neighbor = ny * map.Width + nx;
-                float candidate = cost + map.GetAdvanceCost(x, y, ownerId);
+                MapCell current = map.GetCell(x, y);
+                float candidate = cost + (current.OwnerId >= 0
+                    ? TerrainRules.AttackCost(current.Terrain)
+                    : TerrainRules.MovementCost(current.Terrain));
                 if (candidate >= distance[neighbor]) continue;
                 distance[neighbor] = candidate;
                 next[neighbor] = id;
@@ -212,8 +218,8 @@ public sealed class ExpansionOrder
         }
         if (best < 0) { IsComplete = true; return AdvanceResult.Complete; }
         x = best % map.Width; y = best / map.Width;
-        // The committed force is finite. An advance that cannot pay for its next
-        // action is spent, not paused: recruits go to the reserve, not the front.
+        // The committed force is finite. Wilderness is free, but an advance
+        // that cannot pay for its next enemy action is spent rather than paused.
         if (force.Manpower < map.GetAdvanceCost(x, y, ownerId))
         { IsComplete = true; return AdvanceResult.OutOfTroops; }
         LastDefenderId = map.GetCell(x, y).OwnerId;

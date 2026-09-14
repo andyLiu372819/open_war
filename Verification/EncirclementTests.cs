@@ -45,7 +45,7 @@ static class EncirclementTests
     public static void Run()
     {
         // Every movement/capture call uses the same pricing rule, not just the UI.
-        int[] neutral = { 1, 2, 2, 3, 3, 4, 5, 6 };
+        int[] neutral = { 0, 0, 0, 0, 0, 0, 0, 0 };
         int[] enemy = { 12, 14, 18, 20, 22, 24, 30, 36 };
         TerrainType[] biomes = { TerrainType.Land, TerrainType.Coast, TerrainType.Forest,
             TerrainType.Desert, TerrainType.Ford, TerrainType.Hills, TerrainType.Snow, TerrainType.Mountains };
@@ -127,15 +127,38 @@ static class EncirclementTests
         map = new MapData(mixed); Ring(map, 3, 3, 7, 7); map.TryClaimCell(6, 2, 1);
         player = new PlayerData(0, 100);
         system = new EncirclementSystem(map, new[] { player }); system.Refresh();
-        system.Step(0, 1, out _, out _);
+        // The wall breaks before the wave takes anything. Once a ring attack has
+        // eaten a layer the survivors are enclosed by the newly captured cells,
+        // so only an untouched pocket can be freed by breaching the outer wall.
         Check(map.TryAdvanceCell(6, 3, new CommittedForce(1, 100), out bool breached) && breached, "Could not breach ring");
-        Check(!map.IsEncircledBy(5, 5, 0) && map.GetAdvanceCost(5, 5, 0) == 6, "Broken ring kept discount");
+        Check(!map.IsEncircledBy(5, 5, 0) && map.GetAdvanceCost(5, 5, 0) == 0,
+            "Ordinary wilderness stopped being free after a ring broke");
         Check(system.Step(0, 1, out _, out _) == AdvanceResult.Complete, "Broken-pocket assault kept going");
         Check(system.LastRefund == 0 && player.Manpower == 100, "Broken free wave changed reserve");
         system.Refresh();
         Check(map.EncircledCellCount(0) == 0, "Breach failed to connect pocket to exterior");
 
-        // Exhaustion, later recruitment, and concurrent manual captures conserve troops.
+        // A pocket is attacked from every side at once: one step takes its whole
+        // perimeter, and the shrunken core stays encircled by the new front.
+        map = new MapData(Plains(16, 16)); Ring(map, 3, 3, 11, 11);
+        player = new PlayerData(0, 0);
+        system = new EncirclementSystem(map, new[] { player }); system.Refresh();
+        Check(map.EncircledCellCount(0) == 49, "Seven-by-seven interior was not detected");
+        var takenCells = new System.Collections.Generic.List<int>();
+        var hitDefenders = new System.Collections.Generic.List<int>();
+        Check(system.Step(0, 1, takenCells, hitDefenders) == AdvanceResult.Captured,
+            "Ring attack did not advance");
+        Check(takenCells.Count == 24, "One step should take all 24 perimeter tiles, not one");
+        Check(map.EncircledCellCount(0) == 25, "Captured perimeter should leave the inner five-by-five");
+        system.Refresh();
+        Check(map.EncircledCellCount(0) == 25, "Re-flooding changed the surviving core");
+        Check(system.Step(0, 1, takenCells, hitDefenders) == AdvanceResult.Captured &&
+            takenCells.Count == 16, "Second ring did not take the next whole layer");
+        Drain(system);
+        Check(map.EncircledCellCount(0) == 0 && player.Manpower == 0,
+            "Ring attack left survivors or charged for wilderness");
+
+        // Exhaustion, later explicit reinforcement, and concurrent manual captures conserve troops.
         var rugged = Plains();
         for (int x = 0; x < 12; x++)
         for (int y = 0; y < 12; y++) rugged[x, y] = TerrainType.Mountains;
@@ -148,8 +171,10 @@ static class EncirclementTests
         system.Step(0, .05f, out _, out _);
         Check(player.Manpower == 2 && system.RemainingTroops(0) == 0, "Unaffordable wave withdrew reserve");
         player.AddManpower(1000); Drain(system);
-        Check(player.Manpower == 228 && map.EncircledCellCount(0) == 0, "Recruitment did not fund a later wave");
-        map = new MapData(Plains()); Ring(map, 3, 3, 7, 7);
+        Check(player.Manpower == 228 && map.EncircledCellCount(0) == 0, "Explicit reinforcement did not fund a later wave");
+        // Wide enough that one simultaneous ring leaves interior for the manual
+        // order: a 5x5 pocket loses its 16-tile perimeter and keeps a 3x3 core.
+        map = new MapData(Plains()); Ring(map, 2, 2, 8, 8);
         player = new PlayerData(0, 100); system = new EncirclementSystem(map, new[] { player }); system.Refresh();
         system.Step(0, 1, out _, out _);
         var manual = new CommittedForce(0, 50);
@@ -159,8 +184,9 @@ static class EncirclementTests
 
         map = new MapData(Plains()); Ring(map, 3, 3, 9, 9);
         player = new PlayerData(0, 100); system = new EncirclementSystem(map, new[] { player }); system.Refresh();
-        system.Step(0, 1, out _, out _);
         manual = new CommittedForce(0, 1000);
+        // By hand first: the automatic wave must then re-seed from inside a
+        // perimeter it never took, rather than racing it to the same tiles.
         for (int x = 4; x <= 8; x++)
         for (int y = 4; y <= 8; y++)
             if (x == 4 || x == 8 || y == 4 || y == 8) map.TryAdvanceCell(x, y, manual, out _);
@@ -206,7 +232,8 @@ static class EncirclementTests
         for (int i = 0; !order.IsComplete && i < 1000; i++) order.Step(out _, out _);
         Check(order.IsComplete && map.IsOwnedBy(29, 6, 0), "Attack stopped at clicked cell instead of edge");
         int spent = order.SpentTroops, refund = order.Recall();
-        Check(spent > 0 && refund > 0 && spent + refund == 10000 && order.SpentTroops == spent, "Directional refund accounting wrong");
+        Check(spent == 0 && refund == 10000 && order.SpentTroops == spent,
+            "Free directional wilderness advance changed its commitment");
         Check(order.Recall() == 0, "Directional recall duplicated troops");
         var wall = Plains(30, 12); for (int y = 0; y < 12; y++) wall[10, y] = TerrainType.Water;
         map = new MapData(wall); map.TryClaimCell(2, 6, 0);

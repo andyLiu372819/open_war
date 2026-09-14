@@ -136,6 +136,9 @@ public class MapRenderer : MonoBehaviour
         float west = map.GetCell(Mathf.Max(0, x - 1), y).Elevation;
         float north = map.GetCell(x, Mathf.Min(map.Height - 1, y + 1)).Elevation;
         float relief = Mathf.Clamp(1f + (west - cell.Elevation + north - cell.Elevation) * 5f, 0.65f, 1.25f);
+        // Water channels are flat-shaded: relief made narrow rivers vanish into
+        // whatever ground they were cutting through.
+        if (cell.Terrain == TerrainType.River || cell.Terrain == TerrainType.Ford) relief = 1f;
         float variation = ((x * 17 + y * 31) % 11 - 5) * 0.006f;
         color *= relief + variation;
         Color faction = cell.OwnerId >= 0 ? OwnerColor(cell.OwnerId) : color;
@@ -150,8 +153,16 @@ public class MapRenderer : MonoBehaviour
                 pixel *= 0.76f;
             if (cell.Terrain == TerrainType.Mountains && px == 1 && py == 3)
                 pixel = Color.Lerp(pixel, Color.white, 0.45f);
-            if (cell.Terrain == TerrainType.Ford && py % 2 == 0)
-                pixel = Color.Lerp(pixel, new Color(0.65f, 0.64f, 0.49f), 0.8f);
+            // A bridge reads as a pale deck with dark rails, laid across the
+            // current rather than along it, so crossings are obvious.
+            if (cell.Terrain == TerrainType.Ford)
+            {
+                bool acrossX = IsWater(map, x - 1, y) || IsWater(map, x + 1, y);
+                int along = acrossX ? px : py;
+                pixel = along == 1 || along == 2
+                    ? Color.Lerp(pixel, new Color(0.95f, 0.91f, 0.76f), 0.92f)
+                    : Color.Lerp(pixel, new Color(0.14f, 0.13f, 0.12f), 0.78f);
+            }
             if (cell.OwnerId >= 0 &&
                 ((px == 0 && !map.IsOwnedBy(x - 1, y, cell.OwnerId)) ||
                  (px == Detail - 1 && !map.IsOwnedBy(x + 1, y, cell.OwnerId)) ||
@@ -163,6 +174,14 @@ public class MapRenderer : MonoBehaviour
         }
     }
 
+    private static bool IsWater(MapData map, int x, int y)
+    {
+        if (!map.InsideBorder(x, y)) return false;
+        TerrainType terrain = map.GetCell(x, y).Terrain;
+        return terrain == TerrainType.River || terrain == TerrainType.Water ||
+            terrain == TerrainType.Ford;
+    }
+
     private static Color TerrainColor(MapCell cell) => cell.Terrain switch
     {
         TerrainType.Water => Color.Lerp(new Color32(21, 48, 66, 255), new Color32(51, 110, 128, 255), cell.Elevation / 0.35f),
@@ -172,8 +191,10 @@ public class MapRenderer : MonoBehaviour
         TerrainType.Mountains => new Color32(145, 142, 132, 255),
         TerrainType.Desert => new Color32(195, 172, 116, 255),
         TerrainType.Snow => new Color32(218, 226, 218, 255),
-        TerrainType.River => new Color32(66, 137, 160, 255),
-        TerrainType.Ford => new Color32(101, 157, 162, 255),
+        // Rivers are deliberately darker and bluer than the sea so a channel
+        // crossing pale ground is unmistakable.
+        TerrainType.River => new Color32(40, 105, 158, 255),
+        TerrainType.Ford => new Color32(64, 122, 150, 255),
         _ => new Color32(122, 153, 93, 255)
     };
 

@@ -12,4 +12,4 @@ Visually inspected `economy-advance.png`: the four-column resource bar is readab
 
 No gameplay errors were logged. Unity's existing fresh-project SearchDatabase indexing exception remains an editor-only exception, as documented in earlier verification reports. Temporary isolated Unity caches were removed after the run. The actual game's package manifest and scene were unchanged.
 
-Backup before this update: `../Backups/before-resource-economy.zip`. Tuning and current formulas: `../My project/README.md` and `../My project/Assets/Scripts/PlayerData.cs`.
+Backup before this update: `../Backups/before-resource-economy.zip`. Tuning and current formulas: `../My project/README.md` and `../My project/Assets/Scripts/Economy/PlayerData.cs`.

@@ -34,7 +34,10 @@ static class SimulationTests
             {
                 Check(map.HasOwnedNeighbor(x, y, ownerId), "Disconnected capture");
                 Check(map.IsWalkable(x, y), "Captured water");
-                Check(order.RemainingTroops < before, "Free capture");
+                if (order.LastDefenderId < 0)
+                    Check(order.RemainingTroops == before, "Wilderness capture consumed manpower");
+                else
+                    Check(order.RemainingTroops < before, "Enemy capture did not consume manpower");
             }
         }
         Check(map.IsOwnedBy(order.TargetX, order.TargetY, ownerId), "Failed to reach destination");
@@ -59,7 +62,99 @@ static class SimulationTests
     static void RunTests()
     {
         EconomyTests.Run();
+        DivisionTests.Run();
+        DuelMapTests.Run();
         EncirclementTests.Run();
+        foreach (EasternFrontTemplate template in ScenarioTemplates.All)
+        {
+            ScenarioMap scenario = ScenarioTemplates.Create(template);
+            Check(scenario.Width == 160 && scenario.Height == 96, "Scenario template dimensions are incorrect");
+            bool sandbox = template == EasternFrontTemplate.Sandbox;
+            if (sandbox)
+            {
+                Check(!scenario.IsPlayable(out _), "Blank sandbox should require starting sides");
+                Check(scenario.CountOwned(0) == 0 && scenario.CountOwned(1) == 0,
+                    "Blank sandbox unexpectedly has a front line");
+                Check(scenario.Settlements.Count == 0, "Blank sandbox unexpectedly has settlements");
+                Check(scenario.InfrastructureRoutes.Count == 0 && scenario.InfrastructureSites.Count == 0,
+                    "Blank sandbox unexpectedly has infrastructure");
+                Check(scenario.TerrainAt(0, 0) == TerrainType.Land &&
+                    scenario.TerrainAt(scenario.Width - 1, scenario.Height - 1) == TerrainType.Land,
+                    "Sandbox is not entirely plains");
+            }
+            else
+            {
+                Check(scenario.IsPlayable(out _), "Scenario template is not playable: " + template);
+                Check(scenario.Settlements.Count >= 20, "Historical template is missing settlements: " + template);
+                Check(scenario.InfrastructureRoutes.Count >= 8 && scenario.InfrastructureSites.Count >= 10,
+                    "Historical template is missing infrastructure: " + template);
+                var names = new HashSet<string>();
+                foreach (ScenarioSettlement settlement in scenario.Settlements)
+                {
+                    Check(names.Add(settlement.Name), "Duplicate settlement: " + settlement.Name);
+                    Check(settlement.X >= 0 && settlement.X < scenario.Width &&
+                        settlement.Y >= 0 && settlement.Y < scenario.Height,
+                        "Settlement projected outside the map: " + settlement.Name);
+                    int expectedX = (int)Math.Round((settlement.Longitude - scenario.WestLongitude) /
+                        (scenario.EastLongitude - scenario.WestLongitude) * (scenario.Width - 1));
+                    int expectedY = (int)Math.Round((settlement.Latitude - scenario.SouthLatitude) /
+                        (scenario.NorthLatitude - scenario.SouthLatitude) * (scenario.Height - 1));
+                    Check(settlement.X == expectedX && settlement.Y == expectedY,
+                        "Settlement projection drifted: " + settlement.Name);
+                }
+                var routeNames = new HashSet<string>();
+                foreach (ScenarioInfrastructureRoute route in scenario.InfrastructureRoutes)
+                {
+                    Check(routeNames.Add(route.Name) && route.Points.Count >= 2,
+                        "Invalid or duplicate infrastructure route: " + route.Name);
+                    foreach (ScenarioRoutePoint point in route.Points)
+                        Check(point.X >= 0 && point.X < scenario.Width && point.Y >= 0 && point.Y < scenario.Height,
+                            "Infrastructure route projected outside the map: " + route.Name);
+                }
+                var siteNames = new HashSet<string>();
+                foreach (ScenarioInfrastructureSite site in scenario.InfrastructureSites)
+                {
+                    Check(siteNames.Add(site.Name), "Duplicate infrastructure site: " + site.Name);
+                    Check(site.X >= 0 && site.X < scenario.Width && site.Y >= 0 && site.Y < scenario.Height,
+                        "Infrastructure site projected outside the map: " + site.Name);
+                }
+                int eligible = 0;
+                foreach (int ownerId in new[] { 0, 1 })
+                    foreach (ScenarioInfrastructureSite site in scenario.EligibleSpawnSites(ownerId,
+                        UnitSpawnCapability.Land | UnitSpawnCapability.Air | UnitSpawnCapability.Naval))
+                    {
+                        Check(scenario.OwnerAt(site.X, site.Y) == ownerId,
+                            "Future spawn-site ownership filter leaked");
+                        eligible++;
+                    }
+                Check(eligible > 0, "Historical template has no controlled future spawn site");
+            }
+            MapData scenarioData = scenario.CreateMapData();
+            Check(scenarioData.CountTerritory(0) == scenario.CountOwned(0) &&
+                scenarioData.CountTerritory(1) == scenario.CountOwned(1), "Scenario ownership changed during conversion");
+
+            ScenarioMap painted = scenario.Copy();
+            painted.Paint(10, 10, DesignerBrush.Water, 2);
+            Check(painted.TerrainAt(10, 10) == TerrainType.Water && painted.OwnerAt(10, 10) == -1,
+                "Impassable terrain brush did not clear control");
+            painted.Paint(10, 10, DesignerBrush.RedSide, 0);
+            Check(painted.OwnerAt(10, 10) == -1, "Control brush claimed impassable terrain");
+            painted.Paint(10, 10, DesignerBrush.Plains, 0);
+            painted.Paint(10, 10, DesignerBrush.RedSide, 0);
+            Check(painted.OwnerAt(10, 10) == 0, "Control brush did not claim restored land");
+            if (sandbox)
+            {
+                painted.Paint(140, 80, DesignerBrush.BlueSide, 0);
+                Check(painted.IsPlayable(out _), "Painted sandbox did not become playable");
+            }
+            Check(scenario.OwnerAt(10, 10) != painted.OwnerAt(10, 10) ||
+                scenario.TerrainAt(10, 10) != painted.TerrainAt(10, 10), "Scenario copy mutated its template");
+            Check(scenario.Settlements.Count == painted.Settlements.Count,
+                "Scenario copy lost settlement metadata");
+            Check(scenario.InfrastructureRoutes.Count == painted.InfrastructureRoutes.Count &&
+                scenario.InfrastructureSites.Count == painted.InfrastructureSites.Count,
+                "Scenario copy lost infrastructure metadata");
+        }
         var map = new MapData(Plains(32, 20));
         map.TryClaimCell(3, 10, 0);
         Check(ExpansionOrder.TryCreate(map, 0, 26, 10, 4, Ample, out var order), "Cannot issue neutral order");
@@ -68,8 +163,14 @@ static class SimulationTests
         Check(map.GetCell(0, 0).OwnerId == -1, "Order spread across unrelated map");
         Check(!ExpansionOrder.TryCreate(map, 0, -1, 10, 4, Ample, out _), "Out of bounds order accepted");
         Check(!ExpansionOrder.TryCreate(map, 0, 26, 10, 4, Ample, out _), "Own target accepted");
-        Check(!ExpansionOrder.TryCreate(map, 0, 2, 10, 4, 0, out _), "Order with no committed troops accepted");
-        Check(!ExpansionOrder.TryCreate(map, 0, 2, 10, 4, -50, out _), "Order with negative commitment accepted");
+        map = new MapData(Plains(24, 16));
+        map.TryClaimCell(2, 8, 0);
+        Check(ExpansionOrder.TryCreate(map, 0, 20, 8, 3, 0, out order),
+            "Zero-manpower wilderness order was rejected");
+        int zeroBefore = map.CountTerritory(0);
+        Check(order.Step(out _, out _) == AdvanceResult.Captured && order.SpentTroops == 0 &&
+            map.CountTerritory(0) > zeroBefore, "Zero-manpower wilderness order did not capture for free");
+        Check(!ExpansionOrder.TryCreate(map, 0, 20, 8, 3, -50, out _), "Order with negative commitment accepted");
 
         var terrain = Plains(28, 22);
         for (int y = 0; y < 20; y++) terrain[12, y] = TerrainType.Water;
@@ -99,6 +200,9 @@ static class SimulationTests
         for (int y = 0; y < 10; y++) terrain[x, y] = TerrainType.Mountains;
         map = new MapData(terrain);
         map.TryClaimCell(3, 3, 0);
+        for (int x = 0; x < map.Width; x++)
+        for (int y = 0; y < map.Height; y++)
+            if (x != 3 || y != 3) map.TryClaimCell(x, y, 1);
         Check(ExpansionOrder.TryCreate(map, 0, 6, 3, 2, 5, out order), "Undersized commitment rejected");
         int version = map.OwnershipVersion;
         Check(order.Step(out _, out _) == AdvanceResult.OutOfTroops, "Spent force kept advancing");
@@ -110,26 +214,35 @@ static class SimulationTests
         // A force large enough for a few tiles takes exactly those tiles.
         map = new MapData(Plains(20, 12));
         map.TryClaimCell(2, 6, 0);
+        for (int x = 0; x < map.Width; x++)
+        for (int y = 0; y < map.Height; y++)
+            if (x != 2 || y != 6) map.TryClaimCell(x, y, 1);
         Check(ExpansionOrder.TryCreate(map, 0, 17, 6, 2, 33, out order), "Bounded order rejected");
         while (!order.IsComplete) order.Step(out _, out _);
         int taken = map.CountTerritory(0) - 1;
         Check(taken > 0, "Bounded order captured nothing");
         Check(!map.IsOwnedBy(17, 6, 0), "A 33-troop force crossed the whole map");
         Check(order.SpentTroops + order.RemainingTroops == order.CommittedTroops, "Committed troops leaked");
-        Check(order.SpentTroops == taken * TerrainRules.ExpansionCost(TerrainType.Land),
+        Check(order.SpentTroops == taken * TerrainRules.AttackCost(TerrainType.Land),
             "Bounded order spent an unexpected amount");
-        Check(order.RemainingTroops < TerrainRules.ExpansionCost(TerrainType.Land),
+        Check(order.RemainingTroops < TerrainRules.AttackCost(TerrainType.Land),
             "Order stopped while it could still afford a tile");
 
         // Doubling the commitment on identical ground doubles the ground taken.
         map = new MapData(Plains(40, 24));
         map.TryClaimCell(2, 12, 0);
-        ExpansionOrder.TryCreate(map, 0, 37, 12, 3, 100, out order);
+        for (int x = 0; x < map.Width; x++)
+        for (int y = 0; y < map.Height; y++)
+            if (x != 2 || y != 12) map.TryClaimCell(x, y, 1);
+        ExpansionOrder.TryCreate(map, 0, 37, 12, 3, 120, out order);
         while (!order.IsComplete) order.Step(out _, out _);
         int small = map.CountTerritory(0);
         map = new MapData(Plains(40, 24));
         map.TryClaimCell(2, 12, 0);
-        ExpansionOrder.TryCreate(map, 0, 37, 12, 3, 200, out order);
+        for (int x = 0; x < map.Width; x++)
+        for (int y = 0; y < map.Height; y++)
+            if (x != 2 || y != 12) map.TryClaimCell(x, y, 1);
+        ExpansionOrder.TryCreate(map, 0, 37, 12, 3, 240, out order);
         while (!order.IsComplete) order.Step(out _, out _);
         Check(map.CountTerritory(0) > small, "A larger commitment did not take more ground");
         Check(map.CountTerritory(0) - 1 == (small - 1) * 2, "Commitment does not scale ground linearly");
@@ -301,6 +414,6 @@ static class SimulationTests
                 "Large map label escaped territory");
         }
         Console.WriteLine("4,000 large-map territory count/center queries: " + timer.ElapsedMilliseconds + " ms");
-        Console.WriteLine("PASS: " + checks + " assertions covering generation, broad advances, obstacles, fords, combat, troop commitment, label centers, and 524,288-tile scaling.");
+        Console.WriteLine("PASS: " + checks + " assertions covering scenario templates, map painting, generation, broad advances, obstacles, fords, combat, troop commitment, label centers, and 524,288-tile scaling.");
     }
 }
