@@ -4,7 +4,7 @@ Open `Assets/Scenes/game.unity` and press Play. The title screen offers the orig
 
 ## Combat and transport
 
-Enemy formations are now real combatants. When an advance meets an opposing counter or its active defensive frontage, both formations take casualties from their pre-combat strengths in the same resolution step. Terrain and fieldworks protect the holder, while reserves caught in combat are more vulnerable to disruption. A formation reduced to zero strength is removed immediately, releases the defensive line and entrenchment it maintained, and appears in the end-of-turn combat report. A surviving attacker must still reduce the ground garrison before it can occupy the cell. Battered divisions recover only in Reserve, using replacements from the national military pool.
+Enemy formations are now real combatants. When an advance meets an opposing counter or its active defensive frontage, both formations take casualties from their pre-combat strengths in the same simulation tick. Terrain and fieldworks protect the holder, while reserves caught in combat are more vulnerable to disruption. A formation reduced to zero strength is removed immediately, releases the defensive line and entrenchment it maintained, and appears in the combat status report. A surviving attacker must still reduce the ground garrison before it can occupy the cell. Battered divisions recover only in Reserve, using replacements from the national military pool.
 
 Roads and railways are functional transport networks rather than straight decorative links between cities. Scenario waypoints are resolved into connected walkable cell paths that bend around water and difficult country. Attack, defensive deployment, and redeployment pathfinding prefer the lower movement cost of built transport; an attacking formation can cover up to two road cells per step, while redeployment can cover up to three. The designer and game render this same cell network as a rounded route, and movement arrows use a separately smoothed staff-work curve while retaining their exact underlying order.
 
@@ -28,7 +28,8 @@ Historical settlement and infrastructure coverage follows the campaign maps in t
 - **Right-drag along your own border** to assign the selection a stretch of front to hold. The line is split between the divisions selected, and holding it puts them on the defensive.
 - **F1–F4** set the selection's stance: attack, defend, reserve, redeploy.
 - **F9** lifts the fog for debugging. A banner stays on screen while it is lifted.
-- **Space** or the END TURN button resolves the turn.
+- **Space** or the PAUSE button pauses/resumes simulation. Orders, stance changes, recruitment, and division raising remain available while paused.
+- Use the **1x / 2x / 4x** buttons to set simulation speed. **[ / ]** step the speed down or up.
 - **Middle-drag, WASD or the arrow keys** pan the map; left-drag is reserved for selection.
 - **B** raises another infantry division for 10,000 military population; **R** recruits military population from civilians and coins.
 - The commitment slider governs the share of the reserve spent on automatic pocket reduction. Its old number-key shortcuts gave way to control groups.
@@ -41,21 +42,19 @@ The number over each territory is its military population. Labels follow an owne
 
 The top resource bar shows your military population, civilian population, gold (coin icon), industry (wrench icon), and owned land. Military never grows on its own — press R or use the RECRUIT button to buy soldiers with civilians and coins. Civilians, gold, and industry show income per second, start at zero, and accumulate as stockpiles. Production and spending buildings will come later.
 
-## The turn: plan, then resolve
+## Simulation time, pause, and speed
 
-The game does not run in real time. It runs **WeGo**: you plan a turn with everything standing still, and when you end it every unit on the map — yours and the rivals' — carries out its orders *simultaneously*.
+The simulation normally runs continuously. Unity frames feed elapsed wall time into `GameClock`, which emits fixed 0.12-second simulation ticks for `GameSimulation`; movement, combat, and pocket reduction only observe those ticks, not rendering frame rate.
 
-**Planning.** Nothing moves. Select divisions, send them, set their stances, raise new ones, recruit. The turn banner at the top reads `TURN n · PLANNING`.
+Pause stops authoritative simulation time without locking the command interface. Resume continues from the same partial tick. The 1x, 2x, and 4x settings change how quickly wall time fills the clock, so an identical command state produces the same outcome after the same number of simulation ticks at every speed.
 
-**Resolving.** Press Space or END TURN and the turn plays out over a fixed budget of simultaneous steps. Each step advances every division at once, squeezes every pocket, and accrues one period of production. Orders are locked for the duration: move orders, stance changes, and raising divisions are all refused until the turn finishes. The banner counts the turn out as `RESOLVING n%`.
-
-When the last step resolves, the turn number advances and planning opens again. Because production accrues per step rather than per second, a turn is worth a fixed amount of income no matter how long you spend thinking about it.
+Movement and combat run every base tick. Encirclement detection and fog have slower periodic/dirty cadences, while economy accrues once per simulated second. The command-panel clock shows elapsed simulation time and the current pause/speed state.
 
 ## Holding a line
 
 Right-drag along ground you already hold and the selected divisions take responsibility for that stretch of front. The drag is traced cell by cell, only ground you own counts, and a group splits the line evenly between its members rather than piling onto the same cells.
 
-Assigning a line also creates a defensive deployment route. During resolution, each division moves through friendly territory toward the nearest cell in its assigned frontage. It begins entrenching the full line after it arrives; if the route or destination is lost, it stops rather than turning the defensive order into an attack.
+Assigning a line also creates a defensive deployment route. On simulation ticks, each division moves through friendly territory toward the nearest cell in its assigned frontage. It begins entrenching the full line after it arrives; if the route or destination is lost, it stops rather than turning the defensive order into an attack.
 
 **A division covers a standard frontage of 6 cells at full strength.** Stretch it wider and the same division is spread over more ground: the entrenchment bonus is divided across the line, so twice the width is half the defence per cell. Assigning 6 cells gives the full +60 per cell, 12 cells gives +30, 24 cells gives +15. Deciding how thin to spread is the whole trade.
 
@@ -67,7 +66,7 @@ Ordering a division to move anywhere releases the line it was holding — it can
 
 A nation sees the ground it holds, **six cells beyond its own border**, and a **fourteen-cell circle around each of its divisions**. Everything else is dark, and enemy formations standing in the dark are not drawn at all — no counter, no strength, nothing.
 
-Sight passes over water as readily as over land, so a coastline is not blind. The mask is recomputed at each turn boundary rather than every frame, which is all a WeGo game needs, and it is drawn as a single cell-resolution overlay texture rather than by re-tinting the terrain chunks.
+Sight passes over water as readily as over land, so a coastline is not blind. The mask is recomputed on periodic simulation ticks and immediately after relevant dirty events, and it is drawn as a single cell-resolution overlay texture rather than by re-tinting the terrain chunks every frame.
 
 **Press F9 to lift the fog** and watch what the enemy is actually doing. The fog is still computed underneath, so switching back restores the true picture immediately, and a banner stays on screen the whole time it is lifted so a debug run can never be mistaken for a real one.
 
@@ -86,7 +85,7 @@ Rivers are carved two cells wide and shaded flat rather than with relief, so a c
 
 ## Stances
 
-A stance is an order about *intent*, and it decides what a division does when the turn resolves.
+A stance is an order about *intent*, and it decides what a division does on each simulation tick.
 
 | Stance | What it does |
 | --- | --- |
@@ -107,7 +106,7 @@ An **infantry division** costs **10,000 military population** and is raised on y
 
 Starting military is set so both sides take the field with a real order of battle: Quick Play gives you 45,000 (four divisions, with change) and each rival 32,000 (three). The scenario templates already start between 36,000 and 52,000, so they field three to five divisions each.
 
-Select one or more divisions, then right-click where they should go; they move when the turn resolves. It takes a terrain-weighted route, so it prefers open ground over hills and mountains, and water and deep rivers block it entirely — fords still cross. Order a division into open country and it simply marches; order it onto enemy ground and it fights its way in.
+Select one or more divisions, then right-click where they should go; they begin moving on subsequent simulation ticks. Each takes a terrain-weighted route, so it prefers open ground over hills and mountains, and water and deep rivers block it entirely — fords still cross. Order a division into open country and it simply marches; order it onto enemy ground and it fights its way in.
 
 As a division advances it claims the wilderness it stands on plus a two-cell frontage either side. Without that frontage a division would paint a one-cell thread nobody could see. Wilderness costs a division nothing, as it costs nothing for anyone else.
 
@@ -117,7 +116,7 @@ Contested ground is different. Entering an enemy tile is paid for out of the div
 
 Divisions take terrain-weighted routes to their destination. Water and deep rivers block land movement, while striped fords allow river crossings. The `ExpansionOrder` corridor search that used to drive border attacks is retained as a tested component, but nothing in the game reaches it any more.
 
-The manual front takes one action every 0.035 seconds. Every walkable wilderness tile costs zero manpower, while terrain still influences route selection. Enemy occupation retains its terrain prices. Each paid enemy action deals 12 damage to the tile's garrison and deducts up to 12 from the defender's reserve. The three rivals defend and reduce their own encircled pockets, but do not yet issue strategic offensive orders.
+Formation movement/combat and automatic pocket reduction advance on the fixed 0.12-second simulation tick. Every walkable wilderness tile costs zero manpower, while terrain still influences route selection. Enemy occupation retains its terrain prices. Each paid enemy action deals 12 damage to the tile's garrison and deducts up to 12 from the defender's reserve. The three rivals defend and reduce their own encircled pockets, but do not yet issue strategic offensive orders.
 
 | Terrain | Wilderness | Enemy cost per action |
 | --- | ---: | ---: |
@@ -168,9 +167,9 @@ A surrounded pocket is attacked **from every direction at once**. Each tick, eve
 
 One consequence is worth knowing: once a ring attack has taken a layer, the survivors are enclosed by the newly captured tiles, so breaching the original outer wall no longer frees them.
 
-The enclosing faction reduces accessible pocket cells from their edges on this schedule, one ring per 0.1 seconds. It handles multiple pockets without another click. Free wilderness waves use no troops. When they reach enemy land, a paid wave forms using the slider's current percentage of the **home reserve** (rivals use 50%), provided it can afford combat. That force is reserved up front. A paid wave's commitment stays fixed; subsequent waves use the latest slider setting. With passive recruitment paused, no new manpower enters the reserve. Unspent troops return when a paid wave completes, cannot afford another action, or loses its encirclement. Free waves never generate refunds. Right-click recalls your manual advance; pocket reduction remains automatic.
+The enclosing faction reduces accessible pocket cells from their edges on the base 0.12-second simulation tick, one ring per tick. It handles multiple pockets without another click. Free wilderness waves use no troops. When they reach enemy land, a paid wave forms using the slider's current percentage of the **home reserve** (rivals use 50%), provided it can afford combat. That force is reserved up front. A paid wave's commitment stays fixed; subsequent waves use the latest slider setting. With passive recruitment paused, no new manpower enters the reserve. Unspent troops return when a paid wave completes, cannot afford another action, or loses its encirclement. Free waves never generate refunds. Pocket reduction remains automatic.
 
-Losing territory immediately invalidates that faction's pocket discounts. Detection checks changed enclosures every 0.75 seconds and restores any still-valid pockets. Captures inside a known pocket update its membership without another flood. Detection examines only the enclosing faction's padded bounding rectangle and skips unchanged factions. It still runs on the main thread, so very large changing enclosures can cause a short pause.
+Losing territory invalidates that faction's pocket discounts. Detection checks changed enclosures every four base ticks (0.48 simulated seconds) and restores any still-valid pockets. Captures inside a known pocket update its membership without another flood. Detection examines only the enclosing faction's padded bounding rectangle and skips unchanged factions. It still runs on the main thread, so very large changing enclosures can cause a short pause.
 
 Ground access is still required: an enclosed island separated from all your land by unforded water receives the discount but cannot be occupied until a ground connection exists. Transport, supplies, divisions/brigades, and combat planning are future systems. `EncirclementSystem` and its internal `PocketAssault` keep this temporary territorial rule separate from manual orders and rendering so those systems can replace it later.
 
@@ -180,22 +179,23 @@ The map is 1,024 × 512 cells: **524,288 tiles**, including water, with a determ
 
 The renderer divides the world into 32 sections of 128 × 128 cells. Captures upload only changed sections, including neighboring sections when a border crosses a seam. Territory counts and coordinate sums update when ownership changes; labels search only their faction's cells and ignore changes to other factions. This keeps economy ticks and ordinary captures from scanning or uploading the whole map. Initial map generation and a long-distance route search still run on the main thread.
 
-Select Map to tune Width, Height, Terrain Seed, Advance Radius (front width), Advance Interval (seconds/action), Front Spread (how much longer than the best approach a route may be and still join), Max Fronts, Encirclement Check Interval, and Pocket Assault Interval. Terrain costs and the encirclement multiplier live in `TerrainRules.cs`. Front Spread also sets how far the route search explores, so lowering it shortens the pause when you click a distant target. All starts are placed on the largest connected land region. Select Main Camera to tune Scroll Zoom Strength, Drag Speed, Keyboard Speed, and zoom limits. The scene saves existing settings explicitly; changing a field's code default alone does not replace saved Inspector values.
+Select Map to tune Width, Height, Terrain Seed, and Fixed Tick Duration. Terrain costs and the encirclement multiplier live in `TerrainRules.cs`; the initial subsystem cadences live in `GameSimulation.cs`. All starts are placed on the largest connected land region. Select Main Camera to tune Scroll Zoom Strength, Drag Speed, Keyboard Speed, and zoom limits. The scene saves existing settings explicitly; changing a field's code default alone does not replace saved Inspector values.
 
 The commitment panel is built in code against the existing canvas, so no scene edits are needed to see it.
 
 ## Code map
 
-Gameplay scripts are organized by responsibility under `Assets/Scripts`: `Core`, `Economy`, `Units`, `Combat`, `Orders`, `Scenarios`, `Rendering`, `UI`, and `Input`. `MapController.cs` stays at the root as the scene composition root. Unity `.meta` files moved with their scripts, so serialized scene references retain their original GUIDs.
+Gameplay scripts are organized by responsibility under `Assets/Scripts`: `Core`, `Economy`, `Units`, `Combat`, `Orders`, `Simulation`, `Scenarios`, `Rendering`, `UI`, and `Input`. `MapController.cs` stays at the root as the scene composition root. Unity `.meta` files moved with their scripts, so serialized scene references retain their original GUIDs.
 
-The main extension path is now `MapControllerInput` -> `DivisionRouting` -> turn resolution in `MapController` -> `DivisionCombat` -> the rendering and HUD layers. Large Unity components use partial classes only to preserve their existing serialized identity while separating source responsibilities; no gameplay object was replaced or renamed.
+The active timing path is Unity `Update` -> `GameClock` -> `GameSimulation` -> the existing gameplay systems -> rendering and HUD presentation. Command input still flows through `MapControllerInput` and `DivisionRouting`, while formation engagements remain in `DivisionCombat`. Large Unity components use partial classes only to preserve their existing serialized identity while separating source responsibilities; no gameplay object was replaced or renamed.
 
 - `MapData`: cells, indexed ownership/counts, claim/combat validation, and your territory-center algorithm restricted to owned cells.
 - `TerrainGenerator` / `TerrainRules`: seeded landscape generation and terrain gameplay effects.
 - `ITroopSource`: the contract for anything that pays for an advance, so `MapData` can charge a nation or a detached force without knowing which it holds.
 - `PlayerData`: military reserve, civilian population, decimal gold/industry balances, income rates, coin-priced recruitment, and economy ticks. `CommittedForce`: the finite pool one order carries, and the recall that returns survivors.
 - `Division` / `DivisionStance` / `DivisionSystem`: formation state and roster lifecycle. `DivisionRouting` owns individual, group, and defensive pathfinding; `DivisionCombat` owns opposing-unit detection, simultaneous casualties, and loss reporting.
-- `TurnState`: the WeGo turn — planning versus resolving, the per-turn step budget, and the roll-over into the next turn.
+- `GameClock`: pause state, 1x/2x/4x wall-time scaling, fixed tick accumulation, tick count, and authoritative simulation time. `GameSimulation`: tick-based coordination of economy, encirclement, formations, defender losses, and presentation-dirty results.
+- `TurnState`: deprecated compatibility code for old tooling only. Active gameplay does not instantiate or consult it; it remains temporarily to make later removal low risk.
 - `DuelMap`: the mirrored Quick Play island — square ocean-ringed terrain, mirrored starting territory, and paired settlements and infrastructure.
 - `MapOrderRenderer`: tapered friendly axes of advance plus relationship-coloured, square-toothed defensive lines, rebuilt only when the visible plan changes.
 - `FogOfWar` / `MapFogRenderer`: what a nation can see, and the cell-resolution mask that dims the rest.
@@ -204,9 +204,9 @@ The main extension path is now `MapControllerInput` -> `DivisionRouting` -> turn
 - `StartingTerritories`: connected, separated starting territories.
 - `ScenarioMap` / `ScenarioTypes`: editable battlefield state and editor vocabulary. `ScenarioTemplates` contains the four Eastern Front layouts and blank Sandbox; `ScenarioInfrastructure` and `MapTransportNetwork` contain logistics metadata and resolved transport paths.
 - `GameSetupUI`: title and designer page composition. `MapDesignerCanvas` translates pointer input into paint coordinates, while `MapDesignerInfrastructureView` renders the functional road and logistics preview.
-- `MapController`: scene startup and turn resolution. `MapControllerInput` owns selection, control groups, hold-line authoring, orders, and stances. Nothing on the map advances outside a resolving turn.
+- `MapController`: Unity scene composition, input handoff, clock feeding, and presentation of simulation results. `MapControllerInput` owns selection, control groups, hold-line authoring, orders, and stances; orders are accepted while paused or running.
 - `MapRenderer` / `MapInfrastructureRenderer`: terrain colors, relief, ownership borders, affected-section updates, and semantic road/rail overlays.
-- `MapHUD`: HUD composition, map labels, turn controls, and the commitment panel. `MapHUDFormations` owns division counters and the selection box; `MapHUDResources` owns the economy bar, procedural coin/wrench icons, recruitment, and resource refresh.
+- `MapHUD`: HUD composition, map labels, pause/speed controls, and the commitment panel. `MapHUDFormations` owns division counters and the selection box; `MapHUDResources` owns the economy bar, procedural coin/wrench icons, recruitment, and resource refresh.
 - `CameraController`: navigation, middle-drag panning, and cursor-centered zoom.
 
 Standalone simulation checks live in `../Verification/SimulationTests.csproj`. Run them with a .NET 8 SDK. The existing scripts and scene before these changes are backed up in `../Backups/before-directional-expansion.zip`.

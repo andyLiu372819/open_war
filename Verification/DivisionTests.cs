@@ -407,23 +407,6 @@ static class DivisionTests
         Check(redeployed == Division.RedeploySpeed + 1,
             "Road redeployment did not outrun cross-country redeployment");
 
-        // ---- WeGo turn structure -------------------------------------------
-        var turnState = new TurnState();
-        Check(turnState.Turn == 1 && turnState.IsPlanning, "A game should open in planning");
-        Check(!turnState.TryStep(), "Stepped a turn that was still being planned");
-        Check(!turnState.TryComplete(), "Completed a turn that never started");
-        Check(turnState.BeginExecution() && turnState.IsExecuting, "Could not execute the turn");
-        Check(!turnState.BeginExecution(), "Started execution twice");
-        Check(turnState.StepsRemaining == TurnState.StepsPerTurn, "Wrong step budget");
-        Check(turnState.Progress == 0f, "Progress should start at zero");
-        for (int i = 0; i < TurnState.StepsPerTurn; i++)
-            Check(turnState.TryStep(), "Ran out of steps early at " + i);
-        Check(!turnState.TryStep(), "Turn produced more steps than its budget");
-        Check(turnState.Progress == 1f, "A spent turn should read as complete");
-        Check(turnState.TryComplete() && turnState.IsPlanning && turnState.Turn == 2,
-            "Turn did not roll over into planning");
-        Check(!turnState.TryComplete(), "Completed the same turn twice");
-
         // Destroyed divisions leave the roster on the next step.
         var gone = new MapData(Plains(12, 12));
         for (int y = 4; y <= 6; y++) gone.TryClaimCell(4, y, 0);

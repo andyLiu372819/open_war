@@ -32,9 +32,6 @@ public partial class MapController : MonoBehaviour
     private MapFogRenderer fogRenderer;
     private FogOfWar fog;
     public FogOfWar Fog => fog;
-    // Reused so a ring attack on a large pocket does not allocate each tick.
-    private readonly List<int> pocketCaptured = new List<int>();
-    private readonly List<int> pocketDefenders = new List<int>();
     private int hoverCell = -1, hoverOwner = -2, hoverCost = -1;
     private bool hoverEncircled;
     private DivisionSystem divisions;
@@ -50,10 +47,11 @@ public partial class MapController : MonoBehaviour
     private bool holdDragging;
     private bool holdOnMap;
     private readonly List<int> holdLine = new List<int>();
-    private readonly TurnState turns = new TurnState();
     private readonly Dictionary<int, List<Division>> controlGroups = new Dictionary<int, List<Division>>();
-    [SerializeField, Min(0.02f)] private float executionStepInterval = 0.12f;
-    private float executionTimer;
+    [SerializeField, Min(0.02f)] private float fixedTickDuration = (float)GameClock.DefaultFixedTickDuration;
+    private const int MaxTicksPerFrame = 32;
+    private GameClock gameClock;
+    private GameSimulation gameSimulation;
     private static readonly Key[] GroupKeys =
     {
         Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5,
@@ -61,13 +59,6 @@ public partial class MapController : MonoBehaviour
     };
     // Ordered to match DivisionStance: attack, defend, reserve, redeploy.
     private static readonly Key[] StanceKeys = { Key.F1, Key.F2, Key.F3, Key.F4 };
-    private readonly List<int> divisionCaptured = new List<int>();
-    private readonly List<int> divisionDefenders = new List<int>();
-    private int friendlyLossesThisTurn;
-    private int enemyLossesThisTurn;
-    private int friendlyDestroyedThisTurn;
-    private int enemyDestroyedThisTurn;
-
     // Read-only access also allows simulation/scene verification without reflection.
     public MapData Map => map;
     public PlayerData LocalPlayer => player;
@@ -75,7 +66,8 @@ public partial class MapController : MonoBehaviour
     public DivisionSystem Divisions => divisions;
     public Division SelectedDivision => selection.Count > 0 ? selection[0] : null;
     public IReadOnlyList<Division> Selection => selection;
-    public TurnState Turns => turns;
+    public GameClock Clock => gameClock;
+    public GameSimulation Simulation => gameSimulation;
 
 
     private void Start()
@@ -104,7 +96,7 @@ public partial class MapController : MonoBehaviour
         // military population apiece, plus a little over for the first rebuild.
         StartGame(generatedMap, DuelMap.StartingMilitary, DuelMap.StartingMilitary,
             "You are red, on the western half of a mirrored island. Select divisions, right-click to send them, " +
-            "right-drag along your border to hold a line, then press SPACE to resolve the turn.", duel, true);
+            "right-drag along your border to hold a line, and press SPACE whenever you need to pause.", duel, true);
     }
 
     public bool StartDesignedGame(ScenarioMap scenario)
@@ -120,12 +112,12 @@ public partial class MapController : MonoBehaviour
     {
         map = gameMap;
         players.Clear();
-        divisions = new DivisionSystem(map, players);
         selection.Clear();
         for (int id = 0; id < 4; id++)
             players.Add(new PlayerData(id, id == 0 ? playerManpower : id == 1 ? enemyManpower : 900,
                 PlayerData.StartingCivilians));
         player = players[0];
+        divisions = new DivisionSystem(map, players);
         encirclement = new EncirclementSystem(map, players);
         encirclement.Refresh();
         // Quick Play lays out a scripted order of battle; other starts simply
@@ -134,6 +126,10 @@ public partial class MapController : MonoBehaviour
         else
             foreach (PlayerData faction in players)
                 while (faction.Manpower >= Division.Cost && divisions.TryForm(faction, out _)) { }
+        // Inspector floats are rounded to microseconds so the intended 0.12s
+        // cadence does not become 0.119999997s when promoted to double.
+        gameClock = new GameClock(System.Math.Round(fixedTickDuration, 6));
+        gameSimulation = new GameSimulation(map, players, divisions, encirclement, player.Id);
         mapRenderer.enabled = true;
         mapRenderer.Draw(map);
         infrastructureRenderer.Draw(scenario, map, mapRenderer);
@@ -142,8 +138,10 @@ public partial class MapController : MonoBehaviour
         hud.Bind(player, map, GetComponent<SpriteRenderer>(), scenario);
         hud.RaiseDivisionRequested -= FormDivisionFromHud;
         hud.RaiseDivisionRequested += FormDivisionFromHud;
-        hud.EndTurnRequested -= EndTurnFromHud;
-        hud.EndTurnRequested += EndTurnFromHud;
+        hud.PauseRequested -= TogglePauseFromHud;
+        hud.PauseRequested += TogglePauseFromHud;
+        hud.SpeedRequested -= SetSimulationSpeedFromHud;
+        hud.SpeedRequested += SetSimulationSpeedFromHud;
         hud.StanceRequested -= SetSelectionStanceFromHud;
         hud.StanceRequested += SetSelectionStanceFromHud;
         for (int id = 1; id < players.Count; id++) hud.AddPlayer(players[id]);
@@ -173,20 +171,15 @@ public partial class MapController : MonoBehaviour
         ReadMouse();
         ReadKeyboard(ref hudDirty);
 
-        // Nothing on the map moves while the turn is being planned. Execution
-        // resolves every unit's orders together, a step at a time.
-        if (turns.IsExecuting)
+        // Unity delivers wall-clock time; gameplay only sees fixed ticks from
+        // GameClock. The cap avoids a long frame stall without dropping time,
+        // so any backlog can be consumed on following frames.
+        gameClock.AddRealTime(Time.unscaledDeltaTime);
+        int resolved = 0;
+        while (resolved++ < MaxTicksPerFrame && gameClock.TryConsumeTick())
         {
-            executionTimer += Time.deltaTime;
-            int resolved = 0;
-            while (turns.IsExecuting && executionTimer >= executionStepInterval && resolved++ < 4)
-            {
-                executionTimer -= executionStepInterval;
-                if (!turns.TryStep()) break;
-                ResolveStep(ref hudDirty);
-            }
-            executionTimer = Mathf.Min(executionTimer, executionStepInterval);
-            if (turns.StepsRemaining == 0) CompleteTurn(ref hudDirty);
+            SimulationTickResult result = gameSimulation.Tick(gameClock.FixedTickDuration, hud.Commitment);
+            PresentSimulationTick(result, ref hudDirty);
         }
 
         for (int i = selection.Count - 1; i >= 0; i--)
@@ -194,75 +187,50 @@ public partial class MapController : MonoBehaviour
         hud.SyncDivisions(divisions.Divisions, selection, fog);
         hud.SetAttackState(0, encirclement.RemainingTroops(player.Id),
             map.EncircledCellCount(player.Id));
-        hud.SetTurn(turns.Turn, turns.IsPlanning, turns.Progress);
+        hud.SetSimulationState(gameClock.Paused, gameClock.SpeedMultiplier, gameClock.SimulationTime);
         hud.SetStanceHighlight(SelectedDivision?.Stance);
         orderRenderer.Draw(divisions.Divisions, player.Id, map, mapRenderer, fog, alliedFactionIds);
         UpdateHoveredCell(Mouse.current);
         if (hudDirty) hud.Refresh();
     }
 
-    // One simultaneous step of a resolving turn: production accrues, pockets
-    // are squeezed, and every division acts at once.
-    private void ResolveStep(ref bool hudDirty)
+    private void PresentSimulationTick(SimulationTickResult result, ref bool hudDirty)
     {
-        foreach (PlayerData faction in players) faction.TickEconomy(map.CountTerritory(faction.Id));
-        hudDirty = true;
-        if (turns.StepsRemaining % 4 == 0) encirclement.Refresh();
-        foreach (PlayerData faction in players)
-        {
-            float share = faction.Id == player.Id ? hud.Commitment : 0.5f;
-            encirclement.Step(faction.Id, share, pocketCaptured, pocketDefenders);
-            foreach (int cell in pocketCaptured)
-                mapRenderer.RefreshCell(map, cell % map.Width, cell / map.Width);
-            foreach (int defenderId in pocketDefenders) ApplyDefenderLoss(defenderId);
-        }
-        divisions.Step(divisionCaptured, divisionDefenders);
-        foreach (PlayerData faction in players)
-        {
-            int losses = divisions.LastLossesFor(faction.Id);
-            if (faction.Id == player.Id) friendlyLossesThisTurn += losses;
-            else enemyLossesThisTurn += losses;
-        }
-        foreach (Division destroyed in divisions.LastDestroyed)
-        {
-            if (destroyed.OwnerId == player.Id) friendlyDestroyedThisTurn++;
-            else enemyDestroyedThisTurn++;
-        }
-        foreach (int cell in divisionCaptured)
+        foreach (int cell in result.CapturedCells)
             mapRenderer.RefreshCell(map, cell % map.Width, cell / map.Width);
-        foreach (int defenderId in divisionDefenders) ApplyDefenderLoss(defenderId);
-    }
-
-    private void CompleteTurn(ref bool hudDirty)
-    {
-        encirclement.Refresh();
-        turns.TryComplete();
-        RefreshFog();
-        hud.SetTurn(turns.Turn, turns.IsPlanning, turns.Progress);
-        hudDirty = true;
-        hud.SetStatus("Turn " + (turns.Turn - 1) + " combat report: " +
-            friendlyLossesThisTurn.ToString("N0") + " friendly casualties, " +
-            enemyLossesThisTurn.ToString("N0") + " enemy casualties; " +
-            friendlyDestroyedThisTurn + " friendly and " + enemyDestroyedThisTurn +
-            " enemy formations destroyed. Turn " + turns.Turn + " is ready for orders.");
-    }
-
-    // Locks in this turn's orders and resolves them all at once.
-    public bool EndTurn()
-    {
-        if (!turns.BeginExecution())
+        if (result.FogRefreshDue) RefreshFog();
+        if (result.EconomyTicks > 0 || result.CapturedCells.Count > 0 ||
+            result.FriendlyLosses > 0 || result.EnemyLosses > 0)
+            hudDirty = true;
+        if (result.FriendlyDestroyed > 0 || result.EnemyDestroyed > 0)
         {
-            hud.SetStatus("The turn is already resolving.");
-            return false;
+            hud.SetStatus("Combat report: " + result.FriendlyLosses.ToString("N0") +
+                " friendly casualties, " + result.EnemyLosses.ToString("N0") +
+                " enemy casualties; " + result.FriendlyDestroyed + " friendly and " +
+                result.EnemyDestroyed + " enemy formations destroyed.");
         }
-        executionTimer = 0f;
-        friendlyLossesThisTurn = enemyLossesThisTurn = 0;
-        friendlyDestroyedThisTurn = enemyDestroyedThisTurn = 0;
-        // Reflect the phase change now rather than on the next frame, so the
-        // banner never claims to be planning a turn that is already resolving.
-        hud.SetTurn(turns.Turn, turns.IsPlanning, turns.Progress);
-        hud.SetStatus("Turn " + turns.Turn + " resolving — every unit is executing its orders.");
-        hud.Refresh();
+    }
+
+    public bool TogglePause()
+    {
+        bool paused = gameClock.TogglePaused();
+        hud.SetSimulationState(paused, gameClock.SpeedMultiplier, gameClock.SimulationTime);
+        hud.SetStatus(paused ? "Simulation paused. Orders remain available."
+            : "Simulation resumed at " + gameClock.SpeedMultiplier + "x.");
+        return paused;
+    }
+
+    public void SetSimulationPaused(bool paused)
+    {
+        gameClock.SetPaused(paused);
+        hud.SetSimulationState(paused, gameClock.SpeedMultiplier, gameClock.SimulationTime);
+    }
+
+    public bool SetSimulationSpeed(int multiplier)
+    {
+        if (!gameClock.SetSpeed(multiplier)) return false;
+        hud.SetSimulationState(gameClock.Paused, multiplier, gameClock.SimulationTime);
+        hud.SetStatus("Simulation speed set to " + multiplier + "x.");
         return true;
     }
 
@@ -288,17 +256,14 @@ public partial class MapController : MonoBehaviour
 
     private void FormDivisionFromHud() => FormDivision();
 
-    private void EndTurnFromHud() => EndTurn();
+    private void TogglePauseFromHud() => TogglePause();
+
+    private void SetSimulationSpeedFromHud(int multiplier) => SetSimulationSpeed(multiplier);
 
     private void SetSelectionStanceFromHud(DivisionStance stance) => SetSelectionStance(stance);
 
     public bool FormDivision()
     {
-        if (!turns.IsPlanning)
-        {
-            hud.SetStatus("Divisions are raised while planning, not mid-turn.");
-            return false;
-        }
         if (player.Manpower < Division.Cost)
         {
             hud.SetStatus("A division costs " + Division.Cost.ToString("N0") +
@@ -329,14 +294,6 @@ public partial class MapController : MonoBehaviour
             case 3: return "rd";
             default: return "th";
         }
-    }
-
-    private void ApplyDefenderLoss(int defenderId)
-    {
-        if (defenderId < 0 || defenderId >= players.Count) return;
-        PlayerData defender = players[defenderId];
-        int loss = Mathf.Min(12, defender.Manpower);
-        if (loss > 0) defender.TrySpendManpower(loss);
     }
 
     private void UpdateHoveredCell(Mouse mouse)

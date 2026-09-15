@@ -11,8 +11,8 @@ public class PlayerData : ITroopSource
     public decimal Industry { get; private set; }
 
     public const decimal CivilianBase = 30m;
-    // Per-cell rates suit nations holding tens of thousands of cells: a turn
-    // of production is these rates multiplied by the turn's resolution steps.
+    // Per-cell rates suit nations holding tens of thousands of cells. The
+    // simulation applies these once per simulated second.
     public const decimal CiviliansPerCell = 0.08m;
     public const decimal GoldPerCell = 0.06m;
     public const decimal IndustryPerCell = 0.03m;

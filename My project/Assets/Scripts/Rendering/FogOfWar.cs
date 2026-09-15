@@ -38,8 +38,8 @@ public sealed class FogOfWar
     public bool IsVisible(int cell) =>
         Revealed || (cell >= 0 && cell < visible.Length && visible[cell]);
 
-    // Recomputed when the picture could have changed: at a turn boundary, not
-    // every frame. Owned ground seeds a limited flood outward, and each
+    // Recomputed on periodic simulation ticks and dirty gameplay events, not
+    // every render frame. Owned ground seeds a limited flood outward, and each
     // division adds a circle wherever it stands.
     public void Refresh(IReadOnlyList<Division> divisions)
     {

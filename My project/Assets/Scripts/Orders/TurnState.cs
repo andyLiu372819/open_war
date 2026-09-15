@@ -1,8 +1,9 @@
-// WeGo turn bookkeeping. Orders are given while the turn is being planned and
-// nothing on the map moves; when the turn is executed every unit resolves its
-// orders together over a fixed number of simultaneous steps.
+// Transitional compatibility type for old tooling and saved references.
+// Active gameplay is timed exclusively by GameClock and GameSimulation; this
+// legacy WeGo state machine can be removed once downstream references are gone.
 public enum TurnPhase { Planning, Executing }
 
+[System.Obsolete("Active gameplay uses GameClock and GameSimulation.")]
 public sealed class TurnState
 {
     // How many simultaneous steps one turn of execution is worth.

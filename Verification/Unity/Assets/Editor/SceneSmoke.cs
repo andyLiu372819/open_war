@@ -19,7 +19,8 @@ public static class SceneSmoke
     static Vector2 clickPosition;
     static int targetX, targetY;
     static int startingOwned;
-    static int turnAtExecution;
+    static long tickAtSpeedTest;
+    static long tickAtPause;
     static int pocketX, pocketY;
     static bool runtimeError;
     static int setupStage;
@@ -244,16 +245,17 @@ public static class SceneSmoke
                     Check(Vector3.Distance(oldPosition, camera.transform.position) > 0.1f, "Middle drag did not pan");
                     ApplyInput(mouse, new MouseState { position = clickPosition });
                     camera.GetComponent<CameraController>().FrameMap();
-                    Time.timeScale = 8f;
-                    // Production and movement only happen while a turn resolves,
-                    // so the first turn has to be ended before anything accrues.
-                    Check(controller.Turns.IsPlanning, "A new game should open in planning");
-                    Check(controller.EndTurn(), "Could not end the opening turn");
-                    next = EditorApplication.timeSinceStartup + 3;
+                    Check(!controller.Clock.Paused && controller.Clock.SpeedMultiplier == 1,
+                        "A new game did not start running continuously at 1x");
+                    tickAtSpeedTest = controller.Clock.TickCount;
+                    Check(controller.SetSimulationSpeed(4), "Could not select 4x simulation speed");
+                    next = EditorApplication.timeSinceStartup + 1;
                     break;
                 case 4:
-                    Check(controller.Turns.IsPlanning, "The opening turn never finished resolving");
-                    Check(controller.Turns.Turn == 2, "The opening turn did not roll over");
+                    Check(controller.Clock.TickCount > tickAtSpeedTest,
+                        "Continuous simulation did not advance without an End Turn command");
+                    controller.SetSimulationPaused(true);
+                    tickAtPause = controller.Clock.TickCount;
                     // Nothing has been ordered anywhere, and clicking no longer
                     // launches a border attack, so the front must have stayed put.
                     // Idle divisions still hold their own two-cell frontage.
@@ -266,8 +268,9 @@ public static class SceneSmoke
                         if (text.name == "Map controls" || text.name == "Order status" || text.name == "Commitment readout" ||
                             text.name == "Cell cost readout" || text.name == "Pocket assault readout" ||
                             text.name == "Recruit readout" || text.name == "Raise division readout" ||
-                            text.name == "Counter number" || text.name == "Turn banner" ||
-                            text.name == "End turn readout" || text.name == "Fog debug banner" ||
+                            text.name == "Counter number" || text.name == "Simulation clock" ||
+                            text.name == "Simulation pause readout" || text.name.StartsWith("Speed ") ||
+                            text.name == "Fog debug banner" ||
                             text.name.StartsWith("Stance label ") ||
                             // Quick Play now carries named towns and facilities.
                             text.name.StartsWith("Map settlement label ") ||
@@ -288,8 +291,8 @@ public static class SceneSmoke
                         Check(resourceText != null && resourceText.text.Length > 0, "Missing resource readout: " + name);
                         Check(!resourceText.raycastTarget, "Resource readout blocks map input");
                     }
-                    Check(GameObject.Find("Resource Gold").GetComponent<TMP_Text>().text.Contains("/turn"), "Resource income rate missing");
-                    Check(GameObject.Find("Resource Civilians").GetComponent<TMP_Text>().text.Contains("/turn"),
+                    Check(GameObject.Find("Resource Gold").GetComponent<TMP_Text>().text.Contains("/sim sec"), "Resource income rate missing");
+                    Check(GameObject.Find("Resource Civilians").GetComponent<TMP_Text>().text.Contains("/sim sec"),
                         "Civilian growth rate is not shown in the HUD");
                     Check(GameObject.Find("Resource Military").GetComponent<TMP_Text>().text.Contains("RECRUITED"),
                         "Military readout does not say it is recruited rather than grown");
@@ -319,6 +322,8 @@ public static class SceneSmoke
                     break;
                 case 5:
                     var hud = UnityEngine.Object.FindFirstObjectByType<MapHUD>();
+                    Check(controller.Clock.Paused && controller.Clock.TickCount == tickAtPause,
+                        "Pause allowed authoritative simulation time to advance");
                     var panel = (RectTransform)GameObject.Find("Troop commitment").transform;
                     Vector2 panelPoint = RectTransformUtility.WorldToScreenPoint(null, panel.TransformPoint(panel.rect.center));
                     Check(hud.BlocksMapInput(panelPoint), "Commitment panel does not block map input");
@@ -491,31 +496,21 @@ public static class SceneSmoke
                     Check(GameObject.Find("Cell cost readout").GetComponent<TMP_Text>().text.Contains("ENCIRCLED"), "Hover cost did not show discount");
                     Capture("economy-pocket-before.png", camera);
                     controller.enabled = true;
-                    Time.timeScale = 4f;
-                    // WeGo: nothing on the map resolves until the turn is ended,
-                    // and once it is, orders are locked until it finishes.
-                    Check(controller.Turns.IsPlanning, "Should be planning before the pocket turn");
-                    Check(controller.EndTurn(), "Could not end the turn");
-                    Check(controller.Turns.IsExecuting, "Ending the turn did not start execution");
-                    Check(!controller.EndTurn(), "Ended the same turn twice");
-                    Check(!controller.OrderSelected(pocketX + 3, pocketY + 3),
-                        "A move order was accepted while the turn was resolving");
-                    Check(!controller.FormDivision(), "A division was raised while the turn was resolving");
-                    Check(!controller.SetSelectionStance(DivisionStance.Defend),
-                        "A stance was changed while the turn was resolving");
-                    Check(GameObject.Find("Turn banner").GetComponent<TMP_Text>().text.Contains("RESOLVING"),
-                        "Turn banner does not report that the turn is resolving");
-                    Check(GameObject.Find("End turn button") != null &&
+                    controller.SetSimulationPaused(false);
+                    Check(controller.SetSimulationSpeed(4), "Could not resume the pocket test at 4x");
+                    Check(controller.SetSelectionStance(DivisionStance.Defend),
+                        "A stance order was refused while the simulation was running");
+                    Check(GameObject.Find("Simulation clock").GetComponent<TMP_Text>().text.Contains("RUNNING 4x"),
+                        "Simulation clock does not report the running speed");
+                    Check(GameObject.Find("Simulation pause button") != null &&
+                        GameObject.Find("Speed 1x button") != null && GameObject.Find("Speed 4x button") != null &&
                         GameObject.Find("Stance ATTACK") != null && GameObject.Find("Stance REDEPLOY") != null,
-                        "Turn and stance controls are missing from the HUD");
-                    turnAtExecution = controller.Turns.Turn;
+                        "Simulation and stance controls are missing from the HUD");
                     next = EditorApplication.timeSinceStartup + 3;
                     break;
                 case 7:
-                    Check(controller.Turns.IsPlanning, "The turn never returned to planning");
-                    Check(controller.Turns.Turn == turnAtExecution + 1, "The turn counter did not advance");
-                    Check(GameObject.Find("Turn banner").GetComponent<TMP_Text>().text.Contains("PLANNING"),
-                        "Turn banner does not report the new planning phase");
+                    Check(!controller.Clock.Paused && controller.Clock.TickCount > tickAtPause,
+                        "Resume did not continue simulation from the paused tick");
                     for (int x = 1; x <= 5; x++)
                     for (int y = 1; y <= 5; y++)
                         Check(map.IsOwnedBy(pocketX + x, pocketY + y, 0), "Automatic scene assault left a pocket tile");

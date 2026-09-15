@@ -2,7 +2,7 @@ using UnityEngine;
 
 // Paints unobserved ground dark. One texture at cell resolution is cheaper than
 // re-tinting the terrain chunks, and it only needs rebuilding when the picture
-// changes, which in a WeGo game is once a turn.
+// changes, on periodic simulation ticks or dirty gameplay events.
 [RequireComponent(typeof(SpriteRenderer))]
 public sealed class MapFogRenderer : MonoBehaviour
 {

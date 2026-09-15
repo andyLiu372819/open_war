@@ -1,6 +1,6 @@
 # open_war
 
-A Unity/C# territorial strategy learning project, played as WeGo turns: orders are given while everything stands still, then all units execute them simultaneously. The working prototype includes a mirrored 102,400-cell duel map and a 524,288-cell scenario engine, infantry formations with mutual casualties and destruction, terrain-following transport networks that affect routing and speed, directional expansion, encirclement reduced from every direction at once, free wilderness occupation, separate civilian and military populations with coin-priced recruitment, and land-based gold and industry production.
+A Unity/C# territorial strategy learning project running on deterministic, pause-capable real-time simulation ticks with 1x, 2x, and 4x speeds. The working prototype includes a mirrored 102,400-cell duel map and a 524,288-cell scenario engine, infantry formations with mutual casualties and destruction, terrain-following transport networks that affect routing and speed, directional expansion, encirclement reduced from every direction at once, free wilderness occupation, separate civilian and military populations with coin-priced recruitment, and land-based gold and industry production.
 
 ## Open the game
 

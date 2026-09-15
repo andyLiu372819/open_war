@@ -143,17 +143,14 @@ public partial class MapHUD
     {
         if (resourceTexts[0] == null || localPlayer == null) return;
         int land = map.CountTerritory(localPlayer.Id);
-        // Production accrues once per resolution step, so the useful figure
-        // is what a whole turn is worth rather than a per-second rate.
-        int steps = TurnState.StepsPerTurn;
         resourceTexts[0].text = "<size=16>MILITARY</size>\n" + localPlayer.Manpower.ToString("N0") +
             "  (RECRUITED)";
         resourceTexts[1].text = "<size=16>CIVILIANS</size>\n" + localPlayer.Civilians.ToString("N0") +
-            "  (+" + (PlayerData.CiviliansPerSecond(land) * steps).ToString("N0") + "/turn)";
+            "  (+" + PlayerData.CiviliansPerSecond(land).ToString("N0") + "/sim sec)";
         resourceTexts[2].text = "<size=16>GOLD</size>\n" + localPlayer.Gold.ToString("N0") +
-            "  (+" + (PlayerData.GoldPerSecond(land) * steps).ToString("N0") + "/turn)";
+            "  (+" + PlayerData.GoldPerSecond(land).ToString("N0") + "/sim sec)";
         resourceTexts[3].text = "<size=16>INDUSTRY</size>\n" + localPlayer.Industry.ToString("N0") +
-            "  (+" + (PlayerData.IndustryPerSecond(land) * steps).ToString("N0") + "/turn)";
+            "  (+" + PlayerData.IndustryPerSecond(land).ToString("N0") + "/sim sec)";
         resourceTexts[4].text = "<size=16>OWNED LAND</size>\n" + land.ToString("N0") + " tiles";
         UpdateRecruitLabel();
         UpdateDivisionLabel();

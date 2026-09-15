@@ -67,11 +67,14 @@ public partial class MapHUD : MonoBehaviour
     private readonly TMP_Text[] resourceTexts = new TMP_Text[5];
     private TMP_Text recruitLabel;
     private TMP_Text divisionLabel;
-    private TMP_Text turnLabel;
-    private TMP_Text endTurnLabel;
-    private Image endTurnBackground;
+    private TMP_Text simulationClockLabel;
+    private TMP_Text pauseLabel;
+    private Image pauseBackground;
+    private static readonly int[] SimulationSpeeds = { 1, 2, 4 };
+    private readonly Image[] speedButtons = new Image[3];
     private readonly Image[] stanceButtons = new Image[4];
-    public event System.Action EndTurnRequested;
+    public event System.Action PauseRequested;
+    public event System.Action<int> SpeedRequested;
     public event System.Action<DivisionStance> StanceRequested;
     // Raised by the button; MapController owns the actual roster.
     public event System.Action RaiseDivisionRequested;
@@ -125,7 +128,7 @@ public partial class MapHUD : MonoBehaviour
         controls.name = "Map controls";
         controls.fontSize = 20;
         controls.alignment = TextAlignmentOptions.TopLeft;
-        controls.text = "LEFT CLICK / DRAG  Select     SHIFT  Add to selection     CTRL+1-9  Store group     1-9  Recall group     RIGHT CLICK  Send\nF1-F4  Attack / Defend / Reserve / Redeploy     SPACE  End turn     B  Raise division     R  Recruit     WASD  Move     F  Overview";
+        controls.text = "LEFT CLICK / DRAG  Select     SHIFT  Add to selection     CTRL+1-9  Store group     1-9  Recall group     RIGHT CLICK  Send\nF1-F4  Attack / Defend / Reserve / Redeploy     SPACE  Pause / Resume     [ / ]  Speed     B  Raise division     R  Recruit     WASD  Move     F  Overview";
         PlaceOverlay(controls.rectTransform, new Vector2(0, 1), new Vector2(20, -18), new Vector2(1500, 80));
         statusText = Instantiate(controls, controls.transform.parent);
         statusText.name = "Order status";
@@ -300,21 +303,27 @@ public partial class MapHUD : MonoBehaviour
             : "Wilderness: FREE | Enemy pockets: " + PocketCost + " cost | Automatic capture";
     }
 
-    // Turn banner and End Turn button state. Planning is when orders may be
-    // given; while a turn resolves the button reports progress instead.
-    public void SetTurn(int turn, bool planning, float progress)
+    public void SetSimulationState(bool paused, int speed, double simulationTime)
     {
-        if (turnLabel == null) return;
-        turnLabel.text = planning
-            ? "TURN " + turn + "  \u00b7  PLANNING"
-            : "TURN " + turn + "  \u00b7  RESOLVING  " + Mathf.RoundToInt(progress * 100f) + "%";
-        turnLabel.color = planning ? new Color32(244, 244, 235, 255) : new Color32(255, 213, 111, 255);
-        if (endTurnLabel != null)
-            endTurnLabel.text = planning ? "END TURN  (SPACE)" : "RESOLVING\u2026";
-        if (endTurnBackground != null)
-            endTurnBackground.color = planning
-                ? new Color32(139, 57, 54, 255)
-                : new Color32(58, 70, 78, 255);
+        if (simulationClockLabel == null) return;
+        var elapsed = System.TimeSpan.FromSeconds(System.Math.Max(0d, simulationTime));
+        string clock = ((int)elapsed.TotalHours).ToString("00") + ":" +
+            elapsed.Minutes.ToString("00") + ":" + elapsed.Seconds.ToString("00");
+        simulationClockLabel.text = "SIM " + clock + "  \u00b7  " +
+            (paused ? "PAUSED" : "RUNNING " + speed + "x");
+        simulationClockLabel.color = paused
+            ? new Color32(255, 213, 111, 255)
+            : new Color32(244, 244, 235, 255);
+        if (pauseLabel != null) pauseLabel.text = paused ? "RESUME  (SPACE)" : "PAUSE  (SPACE)";
+        if (pauseBackground != null)
+            pauseBackground.color = paused
+                ? new Color32(48, 102, 145, 255)
+                : new Color32(139, 57, 54, 255);
+        for (int i = 0; i < speedButtons.Length; i++)
+            if (speedButtons[i] != null)
+                speedButtons[i].color = SimulationSpeeds[i] == speed
+                    ? new Color32(198, 142, 56, 255)
+                    : new Color32(40, 56, 66, 255);
     }
 
     // Highlights whichever stance the current selection is set to.
@@ -363,21 +372,19 @@ public partial class MapHUD : MonoBehaviour
             new Vector2(-20f, 18f), new Vector2(360f, 300f));
         panel.GetComponent<Image>().color = new Color(0.05f, 0.09f, 0.12f, 0.78f);
 
-        // The turn banner heads the command panel. At the top of the screen it
-        // ran straight through the two lines of control hints.
-        turnLabel = Instantiate(manpowerText, panel.transform);
-        turnLabel.name = "Turn banner";
-        turnLabel.raycastTarget = false;
-        turnLabel.fontSize = 20;
-        turnLabel.fontStyle = FontStyles.Bold;
-        turnLabel.alignment = TextAlignmentOptions.Center;
-        turnLabel.color = Color.white;
-        turnLabel.outlineWidth = 0f;
-        turnLabel.enableAutoSizing = true;
-        turnLabel.fontSizeMin = 12;
-        turnLabel.fontSizeMax = 20;
-        turnLabel.text = "TURN 1  ·  PLANNING";
-        RectTransform turnRect = turnLabel.rectTransform;
+        simulationClockLabel = Instantiate(manpowerText, panel.transform);
+        simulationClockLabel.name = "Simulation clock";
+        simulationClockLabel.raycastTarget = false;
+        simulationClockLabel.fontSize = 20;
+        simulationClockLabel.fontStyle = FontStyles.Bold;
+        simulationClockLabel.alignment = TextAlignmentOptions.Center;
+        simulationClockLabel.color = Color.white;
+        simulationClockLabel.outlineWidth = 0f;
+        simulationClockLabel.enableAutoSizing = true;
+        simulationClockLabel.fontSizeMin = 12;
+        simulationClockLabel.fontSizeMax = 20;
+        simulationClockLabel.text = "SIM 00:00:00  ·  RUNNING 1x";
+        RectTransform turnRect = simulationClockLabel.rectTransform;
         turnRect.anchorMin = new Vector2(0f, 1f);
         turnRect.anchorMax = new Vector2(1f, 1f);
         turnRect.pivot = new Vector2(0.5f, 1f);
@@ -550,37 +557,73 @@ public partial class MapHUD : MonoBehaviour
             stanceTextRect.offsetMax = new Vector2(-2f, -1f);
         }
 
-        var endTurnObject = new GameObject("End turn button", typeof(RectTransform),
+        var pauseObject = new GameObject("Simulation pause button", typeof(RectTransform),
             typeof(Image), typeof(Button));
-        endTurnObject.transform.SetParent(panel.transform, false);
-        var endTurnRect = (RectTransform)endTurnObject.transform;
-        endTurnRect.anchorMin = new Vector2(0f, 0f);
-        endTurnRect.anchorMax = new Vector2(1f, 0f);
-        endTurnRect.pivot = new Vector2(0.5f, 0f);
-        endTurnRect.anchoredPosition = new Vector2(0f, 12f);
-        endTurnRect.sizeDelta = new Vector2(-24f, 40f);
-        endTurnBackground = endTurnObject.GetComponent<Image>();
-        endTurnBackground.color = new Color32(139, 57, 54, 255);
-        Button endTurnButton = endTurnObject.GetComponent<Button>();
-        endTurnButton.targetGraphic = endTurnBackground;
-        endTurnButton.onClick.AddListener(() => EndTurnRequested?.Invoke());
-        endTurnLabel = Instantiate(manpowerText, endTurnObject.transform);
-        endTurnLabel.name = "End turn readout";
-        endTurnLabel.raycastTarget = false;
-        endTurnLabel.fontSize = 17;
-        endTurnLabel.fontStyle = FontStyles.Bold;
-        endTurnLabel.alignment = TextAlignmentOptions.Center;
-        endTurnLabel.color = Color.white;
-        endTurnLabel.outlineWidth = 0f;
-        endTurnLabel.enableAutoSizing = true;
-        endTurnLabel.fontSizeMin = 11;
-        endTurnLabel.fontSizeMax = 17;
-        endTurnLabel.text = "END TURN  (SPACE)";
-        RectTransform endTurnTextRect = endTurnLabel.rectTransform;
-        endTurnTextRect.anchorMin = Vector2.zero;
-        endTurnTextRect.anchorMax = Vector2.one;
-        endTurnTextRect.offsetMin = new Vector2(6f, 2f);
-        endTurnTextRect.offsetMax = new Vector2(-6f, -2f);
+        pauseObject.transform.SetParent(panel.transform, false);
+        var pauseRect = (RectTransform)pauseObject.transform;
+        pauseRect.anchorMin = new Vector2(0f, 0f);
+        pauseRect.anchorMax = new Vector2(0.52f, 0f);
+        pauseRect.pivot = new Vector2(0.5f, 0f);
+        pauseRect.anchoredPosition = new Vector2(0f, 12f);
+        pauseRect.sizeDelta = new Vector2(-16f, 40f);
+        pauseBackground = pauseObject.GetComponent<Image>();
+        pauseBackground.color = new Color32(139, 57, 54, 255);
+        Button pauseButton = pauseObject.GetComponent<Button>();
+        pauseButton.targetGraphic = pauseBackground;
+        pauseButton.onClick.AddListener(() => PauseRequested?.Invoke());
+        pauseLabel = Instantiate(manpowerText, pauseObject.transform);
+        pauseLabel.name = "Simulation pause readout";
+        pauseLabel.raycastTarget = false;
+        pauseLabel.fontSize = 15;
+        pauseLabel.fontStyle = FontStyles.Bold;
+        pauseLabel.alignment = TextAlignmentOptions.Center;
+        pauseLabel.color = Color.white;
+        pauseLabel.outlineWidth = 0f;
+        pauseLabel.enableAutoSizing = true;
+        pauseLabel.fontSizeMin = 9;
+        pauseLabel.fontSizeMax = 15;
+        pauseLabel.text = "PAUSE  (SPACE)";
+        RectTransform pauseTextRect = pauseLabel.rectTransform;
+        pauseTextRect.anchorMin = Vector2.zero;
+        pauseTextRect.anchorMax = Vector2.one;
+        pauseTextRect.offsetMin = new Vector2(4f, 2f);
+        pauseTextRect.offsetMax = new Vector2(-4f, -2f);
+
+        for (int i = 0; i < SimulationSpeeds.Length; i++)
+        {
+            int speed = SimulationSpeeds[i];
+            var speedObject = new GameObject("Speed " + speed + "x button", typeof(RectTransform),
+                typeof(Image), typeof(Button));
+            speedObject.transform.SetParent(panel.transform, false);
+            var speedRect = (RectTransform)speedObject.transform;
+            speedRect.anchorMin = new Vector2(0.52f + i * 0.16f, 0f);
+            speedRect.anchorMax = new Vector2(0.68f + i * 0.16f, 0f);
+            speedRect.pivot = new Vector2(0.5f, 0f);
+            speedRect.anchoredPosition = new Vector2(0f, 12f);
+            speedRect.sizeDelta = new Vector2(-8f, 40f);
+            Image speedBackground = speedObject.GetComponent<Image>();
+            speedBackground.color = i == 0
+                ? new Color32(198, 142, 56, 255)
+                : new Color32(40, 56, 66, 255);
+            speedButtons[i] = speedBackground;
+            Button speedButton = speedObject.GetComponent<Button>();
+            speedButton.targetGraphic = speedBackground;
+            speedButton.onClick.AddListener(() => SpeedRequested?.Invoke(speed));
+            TMP_Text speedText = Instantiate(manpowerText, speedObject.transform);
+            speedText.name = "Speed " + speed + "x readout";
+            speedText.raycastTarget = false;
+            speedText.fontSize = 14;
+            speedText.fontStyle = FontStyles.Bold;
+            speedText.alignment = TextAlignmentOptions.Center;
+            speedText.color = Color.white;
+            speedText.outlineWidth = 0f;
+            speedText.text = speed + "x";
+            RectTransform speedTextRect = speedText.rectTransform;
+            speedTextRect.anchorMin = Vector2.zero;
+            speedTextRect.anchorMax = Vector2.one;
+            speedTextRect.offsetMin = Vector2.zero;
+            speedTextRect.offsetMax = Vector2.zero;
+        }
     }
 
     private static Image CreateBar(Transform parent, string objectName, Color color)

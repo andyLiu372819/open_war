@@ -8,6 +8,7 @@
     <Compile Include="SimulationTests.cs" />
     <Compile Include="EncirclementTests.cs" />
     <Compile Include="EconomyTests.cs" />
+    <Compile Include="GameClockTests.cs" />
     <Compile Include="DivisionTests.cs" />
     <Compile Include="DuelMapTests.cs" />
     <Compile Include="../My project/Assets/Scripts/Combat/EncirclementSystem.cs" />
@@ -24,6 +25,8 @@
     <Compile Include="../My project/Assets/Scripts/Units/Division.cs" />
     <Compile Include="../My project/Assets/Scripts/Units/DivisionStance.cs" />
     <Compile Include="../My project/Assets/Scripts/Orders/TurnState.cs" />
+    <Compile Include="../My project/Assets/Scripts/Simulation/GameClock.cs" />
+    <Compile Include="../My project/Assets/Scripts/Simulation/GameSimulation.cs" />
     <Compile Include="../My project/Assets/Scripts/Units/DivisionSystem.cs" />
     <Compile Include="../My project/Assets/Scripts/Units/DivisionCombat.cs" />
     <Compile Include="../My project/Assets/Scripts/Units/DivisionRouting.cs" />

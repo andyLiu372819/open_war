@@ -38,12 +38,11 @@ static class EconomyTests
         Check(PlayerData.GoldPerSecond(500) == Gold(500) &&
             PlayerData.CiviliansPerSecond(500) == Civilians(500), "Published rates disagree with production");
 
-        // Income is quoted and accrued per resolution step, so a turn is worth
-        // a fixed multiple of it however long the player spends planning.
-        var perTurn = new PlayerData(9, 0);
-        for (int step = 0; step < TurnState.StepsPerTurn; step++) perTurn.TickEconomy(1000);
-        Check(perTurn.Gold == Gold(1000) * TurnState.StepsPerTurn,
-            "A turn of production is not its step count times the rate");
+        // TickEconomy represents exactly one simulated second of production.
+        var timedIncome = new PlayerData(9, 0);
+        for (int second = 0; second < 14; second++) timedIncome.TickEconomy(1000);
+        Check(timedIncome.Gold == Gold(1000) * 14,
+            "fourteen simulated seconds did not accrue fourteen rates");
 
         // Recruiting is the only route from civilians to soldiers, and it must
         // charge both ledgers for every single soldier it produces.
@@ -88,13 +87,13 @@ static class EconomyTests
         try { new PlayerData(4, 0, -1m); } catch (ArgumentOutOfRangeException) { rejected = true; }
         Check(rejected, "Negative starting civilians accepted");
 
-        // A nation holding a whole half of the duel map should be able to raise
-        // a few divisions a turn, not twenty and not one every twenty turns.
+        // Retain the former fourteen-step balance window as fourteen simulated
+        // seconds so the timing refactor does not silently retune production.
         var nation = new PlayerData(5, 0);
-        for (int step = 0; step < TurnState.StepsPerTurn; step++) nation.TickEconomy(31000);
-        int divisionsPerTurn = (int)(nation.Gold / Division.Cost);
-        Check(divisionsPerTurn >= 1 && divisionsPerTurn <= 6,
-            "A full-half nation earns " + divisionsPerTurn + " divisions a turn, which is out of balance");
+        for (int second = 0; second < 14; second++) nation.TickEconomy(31000);
+        int divisionsInWindow = (int)(nation.Gold / Division.Cost);
+        Check(divisionsInWindow >= 1 && divisionsInWindow <= 6,
+            "A full-half nation earns " + divisionsInWindow + " divisions per fourteen seconds, which is out of balance");
 
         var terrain = new TerrainType[4, 4];
         for (int x = 0; x < 4; x++)
@@ -108,6 +107,6 @@ static class EconomyTests
         Check(map.GetAdvanceCost(3, 1, 0) == 12 && !map.TryAdvanceCell(3, 1, force, out _),
             "Free wilderness accidentally made enemy combat free");
         Console.WriteLine("PASS: " + checks +
-            " economy assertions (civilian growth, coin-priced recruitment, per-turn production, land scaling, and free wilderness).");
+            " economy assertions (civilian growth, coin-priced recruitment, timed production, land scaling, and free wilderness).");
     }
 }

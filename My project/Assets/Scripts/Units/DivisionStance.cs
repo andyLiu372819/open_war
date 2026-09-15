@@ -1,5 +1,5 @@
 // What a division is trying to do this turn. The stance decides how it behaves
-// when the turn resolves, not merely how it is drawn.
+// on simulation ticks, not merely how it is drawn.
 public enum DivisionStance
 {
     // Advance on the ordered destination, taking wilderness and fighting for

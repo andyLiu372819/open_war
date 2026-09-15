@@ -26,8 +26,8 @@ public sealed partial class DivisionSystem
         foreach (PlayerData faction in factions) players[faction.Id] = faction;
     }
 
-    // Stances are set during planning and take effect when the turn resolves.
-    // Anything that holds position drops its route: it is no longer going.
+    // Stances take effect on the next simulation tick. Anything that holds
+    // position drops its route: it is no longer going.
     public void SetStance(Division division, DivisionStance stance)
     {
         if (division == null) return;
@@ -353,8 +353,8 @@ public sealed partial class DivisionSystem
         {
             string engagement = CombatKey(division, opposing);
             // Opposing orders can make the same pair meet from both directions.
-            // They exchange fire once per simultaneous step, not once per turn
-            // through the roster loop.
+            // They exchange fire once per simulation tick, not twice through
+            // the roster loop.
             if (!engagementsThisStep.Add(engagement)) return false;
             ResolveUnitCombat(division, opposing, nx, ny);
             if (division.IsDestroyed || !opposing.IsDestroyed) return false;

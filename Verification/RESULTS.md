@@ -1,3 +1,11 @@
+# Verification - 14 September 2026 (deterministic real-time simulation)
+
+- Replaced the active fourteen-step WeGo driver with `GameClock` and `GameSimulation`. The clock starts unpaused at 1x, supports pause plus 1x/2x/4x, and converts unscaled wall time into fixed 0.12-second ticks without discarding backlog. Commands remain available while paused or running.
+- `GameSimulation` now coordinates the existing economy, encirclement, division movement/combat, national defender losses, and fog-dirty reports. Movement/combat and pocket reduction retain the base cadence, enclosure/fog checks use four-tick periods, and economy accrues once per simulated second.
+- Added 22 clock/simulation assertions. They pin continuous advancement without End Turn, pause/resume continuity, proportional wall-time speed scaling, the slower economy cadence, and identical full authoritative state after sixty simulated seconds at 1x/2x/4x under different render-delta patterns.
+- Updated former WeGo tests and the Unity scene harness for continuous time, pause, speed controls, commands in both pause states, and per-simulated-second resource labels. Existing division combat, defensive frontage/entrenchment, transport, encirclement, scenario, and map suites remain in place.
+- Standalone .NET 8 suites passed: 29 economy, 22 clock, 133 division, 31,934 duel-map, 142 encirclement, and 202,045 general simulation assertions. Unity 6000.5.4f1 compiler response files compiled the runtime cleanly and compiled the editor harness with only its existing Unity API deprecation warnings. A full scene execution could not start because the local Unity Licensing Client repeatedly disconnected while the main project was already open; this was an environment/licensing failure before the harness entered play mode.
+
 # Verification - 14 September 2026 (script organization and responsibility split)
 
 - Reorganized gameplay scripts into `Core`, `Economy`, `Units`, `Combat`, `Orders`, `Scenarios`, `Rendering`, `UI`, and `Input`. Every existing script moved with its Unity `.meta`, preserving serialized GUIDs; `MapController` remains the root scene composition component.

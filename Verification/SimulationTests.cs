@@ -62,6 +62,7 @@ static class SimulationTests
     static void RunTests()
     {
         EconomyTests.Run();
+        GameClockTests.Run();
         DivisionTests.Run();
         DuelMapTests.Run();
         EncirclementTests.Run();

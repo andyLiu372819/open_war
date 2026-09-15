@@ -3,9 +3,9 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
-// Planning-phase input and command translation. MapController remains the scene
+// Input and command translation. MapController remains the scene
 // composition root; this partial isolates selection and order authoring from
-// startup and turn resolution without changing its serialized identity.
+// startup and simulation timing without changing its serialized identity.
 public partial class MapController
 {
     private void ReadMouse()
@@ -37,8 +37,7 @@ public partial class MapController
             dragging = false;
             dragOnMap = false;
         }
-        // Right-click sends the selection; right-drag traces a line for it to
-        // hold. Both only stand during planning.
+        // Right-click sends the selection; right-drag traces a line for it to hold.
         if (mouse.rightButton.wasPressedThisFrame)
         {
             holdStart = pointer;
@@ -92,9 +91,13 @@ public partial class MapController
         }
         if (keyboard.spaceKey.wasPressedThisFrame)
         {
-            EndTurn();
+            TogglePause();
             hudDirty = true;
         }
+        if (keyboard.leftBracketKey.wasPressedThisFrame)
+            SetSimulationSpeed(gameClock.SpeedMultiplier == 4 ? 2 : 1);
+        if (keyboard.rightBracketKey.wasPressedThisFrame)
+            SetSimulationSpeed(gameClock.SpeedMultiplier == 1 ? 2 : 4);
         if (keyboard.rKey.wasPressedThisFrame)
         {
             hud.RecruitMaximum();
@@ -156,11 +159,6 @@ public partial class MapController
     // The same assignment in map cells, so it can be driven without a camera.
     public int AssignHoldCells(int ax, int ay, int bx, int by)
     {
-        if (!turns.IsPlanning)
-        {
-            hud.SetStatus("Orders are locked while the turn resolves.");
-            return 0;
-        }
         if (selection.Count == 0)
         {
             hud.SetStatus("Select the divisions that should hold the line first.");
@@ -207,11 +205,6 @@ public partial class MapController
 
     public bool SetSelectionStance(DivisionStance stance)
     {
-        if (!turns.IsPlanning)
-        {
-            hud.SetStatus("Orders are locked while the turn resolves.");
-            return false;
-        }
         if (selection.Count == 0)
         {
             hud.SetStatus("Select a division before setting its stance.");
@@ -272,11 +265,6 @@ public partial class MapController
 
     public bool OrderSelected(int x, int y)
     {
-        if (!turns.IsPlanning)
-        {
-            hud.SetStatus("Orders are locked while the turn resolves. Wait for the next planning phase.");
-            return false;
-        }
         if (selection.Count == 0)
         {
             hud.SetStatus("Select one or more divisions first, then right-click where they should go.");
